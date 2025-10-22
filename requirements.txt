@@ -1,0 +1,10 @@
+# For reading PDFs
+pymupdf
+# For the vector database
+chromadb-client
+# For chunking the text
+langchain-text-splitters
+# For accessing the Gemini API
+google-generativeai
+#for gui of the application
+flask
