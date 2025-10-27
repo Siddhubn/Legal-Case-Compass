@@ -4,6 +4,8 @@ import chromadb
 import google.generativeai as genai
 from flask import Flask, render_template, request, jsonify, send_from_directory
 from dotenv import load_dotenv
+import json
+import re
 
 # --- 1. INITIALIZATION ---
 
@@ -91,7 +93,7 @@ def get_summaries_from_text(document_text):
         Act as an expert legal analyst. Read the following court document and
         extract all key legal information. List all cited IPC/CPC sections,
         key dates, and a summary of the most recent actions or judgments.
-        Be concise and formal. Output in one paragraph.
+        Be concise and formal. Output in one single paragraph.
 
         DOCUMENT:
         {document_text}
@@ -107,15 +109,15 @@ def get_summaries_from_text(document_text):
 
 def get_rag_answer(legal_summary):
     """
-    Uses the legal summary to search the DB and generate the final answer.
-    This is Part B of our plan.
+    Uses the legal summary to search the DB and generate the final answer
+    in a structured JSON format.
     """
     print("Generating RAG answer...")
     
     # --- 3.A: Embed the User's Query ---
     query_vector = get_gemini_embedding(legal_summary)
     if not query_vector:
-        return "Error: Could not create an embedding for your document.", []
+        return {"error": "Could not create an embedding for your document."}, []
 
     # --- 3.B: Search the Vector Database ---
     print("Searching database for relevant cases...")
@@ -123,23 +125,20 @@ def get_rag_answer(legal_summary):
         search_results = collection.query(
             query_embeddings=[query_vector],
             n_results=5,  # Get the top 5 most similar chunks
-            include=["documents", "metadatas"] # <-- ASK FOR METADATA
+            include=["documents", "metadatas"] # ASK FOR METADATA
         )
     except Exception as e:
         print(f"Error querying database: {e}")
-        return "Error: Could not query the local database.", []
+        return {"error": f"Error querying database: {e}"}, []
 
-    # Combine the search results into one "context" block
     context = "\n---\n".join(search_results['documents'][0])
-    
-    # Get the list of sources from metadata
     metadatas = search_results['metadatas'][0]
-    # Get just the 'source' value, and remove duplicates
     sources = list(dict.fromkeys([meta['source'] for meta in metadatas]))
 
-    # --- 3.C: Generate the Final Answer ---
+    # --- 3.C: Generate the Final Answer (as JSON) ---
     print("Generating final answer with RAG...")
     
+    # SLIGHTLY UPDATED PROMPT
     final_prompt = f"""
     You are a helpful legal AI assistant. You cannot give legal advice.
     Your goal is to provide information and general options based on the
@@ -153,27 +152,57 @@ def get_rag_answer(legal_summary):
 
     **Your Task:**
     Based *only* on the User's Case Summary and the Relevant Legal Information
-    provided above, please answer the following. Be clear and easy to understand.
-
-    1.  **What has happened so far?** (A simple explanation of the case status.)
-    2.  **Key Legal Points:** (List the main legal sections or principles from the
-        context that seem relevant to the user's case.)
-    3.  **General Follow-Ups:** (Provide a list of general, safe next steps.
-        DO NOT suggest how to "win" or give specific legal advice.)
+    provided above, generate a JSON object with three specific keys:
+    1. "what_has_happened": A simple, plain-text explanation of the case status.
+    2. "key_legal_points": A plain-text, bulleted list (using '*' or '-') of the main legal sections or principles.
+    3. "general_follow_ups": A plain-text, bulleted list (using '*' or '-') of general, safe next steps.
     
-    **CRITICAL:** End your entire response with this exact disclaimer:
-    "Disclaimer: This is not legal advice. I am an AI assistant.
-    You must consult a qualified lawyer for advice on your specific case."
+    **CRITICAL:** ONLY output the raw JSON object. Your entire response must
+    start with {{ and end with }}. Do not add *any* text before or after.
     """
     
     try:
         final_response = generation_model.generate_content(final_prompt)
-        return final_response.text, sources  # <-- RETURN SOURCES
+        
+        # --- NEW, MORE ROBUST JSON PARSING ---
+        raw_text = final_response.text
+        
+        # Use regex to find the JSON block, even if the AI adds text
+        match = re.search(r'\{.*\}', raw_text, re.DOTALL)
+        
+        if not match:
+            print(f"JSON DECODE ERROR: No JSON object found in response.")
+            print(f"Raw response was: {raw_text}")
+            raise json.JSONDecodeError("No JSON object found in AI response.", raw_text, 0)
+
+        clean_json_string = match.group(0)
+        analysis_data = json.loads(clean_json_string)
+        # --- END OF NEW PARSING ---
+        
+        # Add the disclaimer to the data
+        analysis_data["disclaimer"] = ("Disclaimer: This is not legal advice. I am an AI assistant. "
+                                       "You must consult a qualified lawyer for advice on your specific case.")
+        
+        return analysis_data, sources
+
+    except json.JSONDecodeError as e:
+        # This will now catch both "No JSON" and "Malformed JSON"
+        print(f"JSON DECODE ERROR: {e}")
+        return {
+            "what_has_happened": "Error: The AI returned an invalid analysis format.",
+            "key_legal_points": "Please try uploading the document again.",
+            "general_follow_ups": "",
+            "disclaimer": "An error occurred."
+        }, []
     except Exception as e:
         print(f"Error generating final answer: {e}")
-        return "Error: Could not generate the final analysis.", []
-
-
+        return {
+            "what_has_happened": f"Error: Could not generate the final analysis. {e}",
+            "key_legal_points": "",
+            "general_follow_ups": "",
+            "disclaimer": "An error occurred."
+        }, []
+    
 # --- 4. FLASK WEB ROUTES ---
 
 @app.route('/')
@@ -211,7 +240,7 @@ def analyze_document():
         story_summary, legal_summary = get_summaries_from_text(doc_text)
         
         # 3. Get RAG Analysis
-        rag_answer, sources = get_rag_answer(legal_summary) # <-- CAPTURE SOURCES
+        analysis_data, sources = get_rag_answer(legal_summary) # <-- Renamed for clarity
         
         print("--- Job Complete ---")
         
@@ -219,8 +248,8 @@ def analyze_document():
         return jsonify({
             "storySummary": story_summary,
             "legalSummary": legal_summary,
-            "analysis": rag_answer,
-            "sources": sources  # <-- SEND SOURCES TO WEBPAGE
+            "analysis": analysis_data,  # <-- This is now an object, not a string
+            "sources": sources
         })
     else:
         return jsonify({"error": "Invalid file type, please upload a PDF."}), 400
