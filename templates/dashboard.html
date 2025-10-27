@@ -18,7 +18,14 @@
           <a href="/app" class="py-4 px-2 text-gray-700 hover:text-primary">Analyze</a>
         </div>
         <div class="hidden md:flex items-center space-x-1">
-          <a href="/login" class="py-2 px-3 border rounded">Login</a>
+          {% if session.get('username') %}
+            <span class="py-2 px-3 text-sm text-gray-700">Signed in as <strong>{{ session.get('username') }}</strong></span>
+            <form id="navLogout" method="post" action="/logout" class="inline">
+              <button type="submit" class="py-2 px-3 bg-red-500 text-white rounded">Logout</button>
+            </form>
+          {% else %}
+            <a href="/login" class="py-2 px-3 border rounded">Login</a>
+          {% endif %}
         </div>
       </div>
     </div>
@@ -27,7 +34,7 @@
     <div class="flex items-center justify-between mb-6">
       <h1 class="text-2xl font-semibold">Your Dashboard</h1>
       <div class="space-x-2">
-        <a href="/" class="px-3 py-2 bg-white border rounded">New analysis</a>
+        <a href="/app" class="px-3 py-2 bg-white border rounded">New analysis</a>
         <button id="logoutBtn" class="px-3 py-2 bg-red-500 text-white rounded">Logout</button>
       </div>
     </div>
@@ -36,7 +43,7 @@
       <div class="col-span-2 bg-white rounded shadow p-4">
         <h2 class="text-lg font-medium mb-3">Saved Analyses</h2>
         <div id="analysesList" class="space-y-3 text-sm text-gray-700">
-          <p class="text-gray-500 italic">Loading...</p>
+            <p class="text-gray-500 italic">Loading...</p>
         </div>
       </div>
 
@@ -87,14 +94,46 @@
       el.innerHTML = '';
       list.forEach(a => {
         const d = document.createElement('div');
-        d.className = 'flex items-start justify-between border rounded p-2';
+        d.className = 'flex items-start justify-between border rounded p-3 hover:shadow-sm';
+        d.style.cursor = 'default';
+
+        // Left area: filename, created, preview — make clickable as well
         const left = document.createElement('div');
-        left.innerHTML = `<div class="font-medium">${a.filename || 'Uploaded file'}</div><div class="text-xs text-gray-600">${a.preview || ''}</div>`;
+        left.className = 'flex-1 pr-3';
+        const title = document.createElement('div');
+        title.className = 'font-medium text-gray-800';
+        title.textContent = a.filename || 'Uploaded file';
+        left.appendChild(title);
+        if (a.created_at) {
+          const createdEl = document.createElement('div');
+          createdEl.className = 'text-xs text-gray-500';
+          createdEl.textContent = a.created_at;
+          left.appendChild(createdEl);
+        }
+        if (a.preview) {
+          const prev = document.createElement('div');
+          prev.className = 'text-xs text-gray-600 mt-1';
+          prev.textContent = a.preview;
+          left.appendChild(prev);
+        }
+
+        // Right area: load button
         const right = document.createElement('div');
-        right.innerHTML = `<button class="px-2 py-1 bg-primary text-white rounded mr-2" data-id="${a.id}">Load</button>`;
-        d.appendChild(left); d.appendChild(right);
+        const btn = document.createElement('button');
+        btn.className = 'px-3 py-1 bg-primary text-white rounded';
+        btn.type = 'button';
+        btn.textContent = 'Load';
+        btn.dataset.id = a.id;
+        right.appendChild(btn);
+
+        // Append
+        d.appendChild(left);
+        d.appendChild(right);
         el.appendChild(d);
-        right.querySelector('button').addEventListener('click', () => loadAnalysis(a.id));
+
+        // Click handlers: both the button and left area load the analysis
+        btn.addEventListener('click', (e) => { e.stopPropagation(); loadAnalysis(a.id); });
+        left.addEventListener('click', () => loadAnalysis(a.id));
       });
     }
 
@@ -115,23 +154,91 @@
         const data = await res.json();
         const viewer = document.getElementById('viewer');
         const content = document.getElementById('viewerContent');
-        let recHtml = '';
-        if (data.recommended && data.recommended.recommended) {
-          recHtml = '<h4 class="font-medium mt-3">Recommended lawyers</h4><div class="mt-2 space-y-2">';
-          data.recommended.recommended.forEach(r => {
-            recHtml += `<div class="border rounded p-2"><div class="font-medium">${escapeHtml(r.name)}</div><div class="text-xs text-gray-600">Phone: ${escapeHtml(r.phone)} • Won: ${escapeHtml(r.won)} • Region: ${escapeHtml(r.ranking)} • Fees: ${escapeHtml(r.fees)}</div></div>`;
-          });
-          recHtml += '</div>';
+
+        // Build structured HTML
+        let html = '';
+        html += `<div class="mb-3"><h4 class="font-medium">Plain-language summary</h4><div class="mt-1 text-gray-800">${escapeHtml(data.storySummary || 'N/A')}</div></div>`;
+        html += `<div class="mb-3"><h4 class="font-medium">Legal summary</h4><div class="mt-1 text-gray-800">${escapeHtml(data.legalSummary || 'N/A')}</div></div>`;
+
+        // Analysis: what_has_happened
+        const analysis = data.analysis || {};
+        html += `<div class="mb-3"><h4 class="font-medium">What has happened</h4><div class="mt-1 text-gray-800">${escapeHtml(analysis.what_has_happened || '')}</div></div>`;
+
+        // key_legal_points (may be string or array)
+        html += `<div class="mb-3"><h4 class="font-medium">Key legal points</h4>`;
+        const kpoints = analysis.key_legal_points || '';
+        html += renderAsList(kpoints);
+        html += `</div>`;
+
+        // general_follow_ups
+        html += `<div class="mb-3"><h4 class="font-medium">General follow-ups</h4>`;
+        const followups = analysis.general_follow_ups || '';
+        html += renderAsList(followups);
+        html += `</div>`;
+
+        // Disclaimer
+        if (analysis.disclaimer) {
+          html += `<div class="mb-3 text-sm italic text-gray-600">${escapeHtml(analysis.disclaimer)}</div>`;
         }
-        content.innerHTML = `<h4 class="font-medium">Plain summary</h4><div class="mt-1">${escapeHtml(data.storySummary || '')}</div>
-          <h4 class="font-medium mt-3">Legal summary</h4><div class="mt-1">${escapeHtml(data.legalSummary || '')}</div>
-          <h4 class="font-medium mt-3">Analysis</h4><pre class="mt-1 text-sm bg-gray-50 p-2 rounded">${escapeHtml(JSON.stringify(data.analysis, null, 2))}</pre>
-          ${recHtml}`;
+
+        // Sources
+        html += `<div class="mb-3"><h4 class="font-medium">Sources referenced</h4>`;
+        if (data.sources && data.sources.length) {
+          html += `<ul class="list-disc list-inside text-sm text-gray-700 mt-2">`;
+          data.sources.forEach(s => { html += `<li><a class="text-primary underline" href="/get-file/${encodeURIComponent(s)}" target="_blank">${escapeHtml(s)}</a></li>`});
+          html += `</ul>`;
+        } else {
+          html += `<div class="text-sm text-gray-500 italic mt-1">No sources saved.</div>`;
+        }
+        html += `</div>`;
+
+        // Recommended lawyers (styled cards)
+        html += `<div class="mb-3"><h4 class="font-medium">Recommended lawyers</h4>`;
+        const rec = (data.recommended && data.recommended.recommended) ? data.recommended.recommended : [];
+        if (rec.length > 0) {
+          html += `<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">`;
+          rec.forEach(r => {
+            html += `<div class="border rounded-lg p-3 shadow-sm bg-white">
+                       <div class="flex items-center justify-between">
+                         <div>
+                           <div class="font-medium text-gray-800">${escapeHtml(r.name)}</div>
+                           <div class="text-xs text-gray-600 mt-1">Category: <span class="font-medium">${escapeHtml(data.recommended.category || '')}</span></div>
+                         </div>
+                         <div class="text-right text-sm text-gray-600">
+                           <div>Won: <span class="font-semibold">${escapeHtml(r.won || '')}</span></div>
+                           <div class="mt-1">Fees: <span class="font-semibold">${escapeHtml(r.fees || '')}</span></div>
+                         </div>
+                       </div>
+                       <div class="mt-3 text-sm text-gray-700">Phone: <a href="tel:${escapeHtml(r.phone)}" class="text-primary underline">${escapeHtml(r.phone)}</a></div>
+                     </div>`;
+          });
+          html += `</div>`;
+        } else {
+          html += `<div class="text-sm text-gray-500 italic mt-1">No recommended lawyers available.</div>`;
+        }
+        html += `</div>`;
+
+        content.innerHTML = html;
         viewer.classList.remove('hidden');
+        // scroll to viewer
+        viewer.scrollIntoView({behavior: 'smooth'});
       } catch (e) { console.error(e); }
     }
 
     function escapeHtml(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    function renderAsList(mixed) {
+      // Accepts array or newline-separated string and returns HTML UL
+      if (!mixed) return '<div class="text-sm text-gray-500 italic mt-1">No items.</div>';
+      let items = [];
+      if (Array.isArray(mixed)) items = mixed.filter(Boolean);
+      else if (typeof mixed === 'string') items = mixed.split('\n').map(s => s.trim()).filter(Boolean);
+      if (items.length === 0) return '<div class="text-sm text-gray-500 italic mt-1">No items.</div>';
+      let out = '<ul class="list-disc list-inside text-sm text-gray-700 mt-2">';
+      items.forEach(it => { out += `<li>${escapeHtml(it.replace(/^[-*\s]+/, ''))}</li>`; });
+      out += '</ul>';
+      return out;
+    }
 
     document.getElementById('saveProfile').addEventListener('click', async () => {
       const payload = {
@@ -155,6 +262,18 @@
       await fetch('/logout', {method:'POST'});
       window.location.href = '/';
     });
+
+      // Navbar logout form (if present) should POST via fetch to avoid showing raw JSON
+      const navLogout = document.getElementById('navLogout');
+      if (navLogout) {
+        navLogout.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          try {
+            await fetch('/logout', {method:'POST'});
+          } catch (err) { /* ignore */ }
+          window.location.href = '/';
+        });
+      }
 
     // on load
     fetchData();

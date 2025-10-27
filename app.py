@@ -603,11 +603,17 @@ def update_profile():
 # --- Serve auth and dashboard pages ---
 @app.route('/login', methods=['GET'])
 def login_page():
+    # If already logged in, redirect to dashboard
+    if session.get('user_id'):
+        return redirect(url_for('dashboard_page'))
     return render_template('login.html')
 
 
 @app.route('/register', methods=['GET'])
 def register_page():
+    # If already logged in, redirect to dashboard
+    if session.get('user_id'):
+        return redirect(url_for('dashboard_page'))
     return render_template('register.html')
 
 

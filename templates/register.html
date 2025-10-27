@@ -18,7 +18,14 @@
           <a href="/app" class="py-4 px-2 text-gray-700 hover:text-primary">Analyze</a>
         </div>
         <div class="flex items-center space-x-1">
-          <a href="/login" class="py-2 px-3 border rounded">Login</a>
+          {% if session.get('username') %}
+            <span class="py-2 px-3 text-sm text-gray-700">Signed in as <strong>{{ session.get('username') }}</strong></span>
+            <form id="navLogout" method="post" action="/logout" class="inline">
+              <button type="submit" class="py-2 px-3 bg-red-500 text-white rounded">Logout</button>
+            </form>
+          {% else %}
+            <a href="/login" class="py-2 px-3 border rounded">Login</a>
+          {% endif %}
         </div>
       </div>
     </div>
@@ -71,6 +78,16 @@
       </div>
     </form>
   </div>
-  
+</div>
+  <script>
+    const navLogout = document.getElementById('navLogout');
+    if (navLogout) {
+      navLogout.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try { await fetch('/logout', {method: 'POST'}); } catch (err) {}
+        window.location.href = '/';
+      });
+    }
+  </script>
 </body>
 </html>
