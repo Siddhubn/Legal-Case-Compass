@@ -58,6 +58,24 @@
 </head>
 
 <body class="font-sans antialiased text-gray-900">
+    <nav class="bg-white shadow">
+        <div class="max-w-6xl mx-auto px-4">
+            <div class="flex justify-between">
+                <div class="flex space-x-4">
+                    <a href="/" class="flex items-center py-4 px-2 text-primary font-bold">
+                        <img src="/static/lcc_logo.png" alt="logo" class="h-10 w-10 mr-2" />
+                        <span>Legal Case Compass</span>
+                    </a>
+                    <a href="/app" class="py-4 px-2 text-gray-700 hover:text-primary">Analyze</a>
+                    <a href="/register" class="py-4 px-2 text-gray-700 hover:text-primary">Register</a>
+                    <a href="/login" class="py-4 px-2 text-gray-700 hover:text-primary">Login</a>
+                </div>
+                <div class="hidden md:flex items-center space-x-1">
+                    <a href="/dashboard" class="py-2 px-3 bg-primary text-white rounded">Dashboard</a>
+                </div>
+            </div>
+        </div>
+    </nav>
 
     <div id="loader" class="fixed inset-0 z-50 flex-col items-center justify-center bg-gray-900/60 backdrop-blur-sm hidden">
         <div class="spinner"></div>
@@ -72,6 +90,8 @@
                     Legal Case Compass
                 </h1>
                 <p class="text-sm text-gray-600 mt-1">AI-Powered Document Analysis</p>
+
+                
             </header>
             
             <hr class="mb-6">
@@ -90,6 +110,8 @@
                         Analyze Document
                     </button>
                 </div>
+
+                
             </div>
 
             <footer class="text-center text-xs text-gray-400 mt-8">
@@ -161,6 +183,16 @@
                             <p class="text-gray-600 mb-4">These are the documents from the knowledge base used to generate the analysis.</p>
                             <ul id="sourceList" class="list-disc list-inside space-y-2">
                                     </ul>
+                        </div>
+                    </div>
+
+                    <div class="result-box lg:col-span-2 bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200">
+                        <h2 class="text-xl font-semibold text-brand-dark bg-gray-50 px-5 py-4 border-b border-gray-200">
+                            Recommended Lawyers
+                        </h2>
+                        <div class="p-5 md:p-6">
+                            <p class="text-gray-600 mb-4">Based on the detected case category, here are recommended lawyers you may consult.</p>
+                            <div id="recommendedList" class="space-y-3"></div>
                         </div>
                     </div>
                 </div>
@@ -323,7 +355,20 @@
                 loader.classList.add('hidden');
                 loader.classList.remove('flex');
                 resultsSection.style.display = 'block';
-
+                
+                    // Show recommended lawyers if present
+                    const recommendedList = document.getElementById('recommendedList');
+                    recommendedList.innerHTML = '';
+                    if (data.recommended && data.recommended.recommended && data.recommended.recommended.length > 0) {
+                        data.recommended.recommended.forEach(r => {
+                            const d = document.createElement('div');
+                            d.className = 'border rounded p-3';
+                            d.innerHTML = `<div class="font-medium">${r.name}</div><div class="text-sm text-gray-600">Phone: ${r.phone} • Won: ${r.won} • Region: ${r.ranking} • Fees: ${r.fees}</div>`;
+                            recommendedList.appendChild(d);
+                        });
+                    } else {
+                        recommendedList.innerHTML = '<p class="text-gray-500 italic">No recommendations available.</p>';
+                    }
             } catch (error) {
                 // Hide loader and show PLACEHOLDER again
                 loader.classList.add('hidden');
@@ -334,5 +379,6 @@
             }
         });
     </script>
+
 </body>
 </html>

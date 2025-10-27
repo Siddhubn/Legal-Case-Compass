@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Dashboard - Legal Case Compass</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-gray-50">
+  <nav class="bg-white shadow">
+    <div class="max-w-6xl mx-auto px-4">
+      <div class="flex justify-between">
+        <div class="flex space-x-4">
+          <a href="/" class="flex items-center py-4 px-2 text-primary font-bold">
+            <img src="/static/lcc_logo.png" alt="logo" class="h-10 w-10 mr-2" />
+            <span>Legal Case Compass</span>
+          </a>
+          <a href="/app" class="py-4 px-2 text-gray-700 hover:text-primary">Analyze</a>
+        </div>
+        <div class="hidden md:flex items-center space-x-1">
+          <a href="/login" class="py-2 px-3 border rounded">Login</a>
+        </div>
+      </div>
+    </div>
+  </nav>
+  <div class="max-w-6xl mx-auto py-8 px-4">
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-2xl font-semibold">Your Dashboard</h1>
+      <div class="space-x-2">
+        <a href="/" class="px-3 py-2 bg-white border rounded">New analysis</a>
+        <button id="logoutBtn" class="px-3 py-2 bg-red-500 text-white rounded">Logout</button>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div class="col-span-2 bg-white rounded shadow p-4">
+        <h2 class="text-lg font-medium mb-3">Saved Analyses</h2>
+        <div id="analysesList" class="space-y-3 text-sm text-gray-700">
+          <p class="text-gray-500 italic">Loading...</p>
+        </div>
+      </div>
+
+      <div class="bg-white rounded shadow p-4">
+        <h2 class="text-lg font-medium mb-3">Profile</h2>
+        <div id="profileForm">
+          <label class="block text-xs text-gray-600">Full name</label>
+          <input id="full_name" class="w-full border rounded px-2 py-1 mb-2" />
+          <label class="block text-xs text-gray-600">Phone</label>
+          <input id="phone" class="w-full border rounded px-2 py-1 mb-2" />
+          <label class="block text-xs text-gray-600">Current address</label>
+          <input id="address_current" class="w-full border rounded px-2 py-1 mb-2" />
+          <label class="block text-xs text-gray-600">Permanent address</label>
+          <input id="address_permanent" class="w-full border rounded px-2 py-1 mb-2" />
+          <label class="block text-xs text-gray-600">Date of birth</label>
+          <input id="dob" type="date" class="w-full border rounded px-2 py-1 mb-2" />
+          <label class="block text-xs text-gray-600">Email</label>
+          <input id="email" type="email" class="w-full border rounded px-2 py-1 mb-3" />
+          <div class="flex justify-end">
+            <button id="saveProfile" class="px-3 py-2 bg-primary text-white rounded">Save</button>
+          </div>
+          <div id="profileMsg" class="text-sm mt-2"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="viewer" class="mt-6 bg-white rounded shadow p-4 hidden">
+      <h3 class="font-medium">Loaded analysis</h3>
+      <div id="viewerContent" class="mt-2 text-sm text-gray-700"></div>
+    </div>
+  </div>
+
+  <script>
+    async function fetchData() {
+      try {
+        const res = await fetch('/my_analyses');
+        if (!res.ok) { window.location.href = '/login'; return; }
+        const data = await res.json();
+        if (!data.ok) { window.location.href = '/login'; return; }
+        renderAnalyses(data.analyses);
+        renderProfile(data.user);
+      } catch (e) { console.error(e); }
+    }
+
+    function renderAnalyses(list) {
+      const el = document.getElementById('analysesList');
+      if (!list || list.length === 0) { el.innerHTML = '<p class="text-gray-500 italic">No saved analyses yet.</p>'; return; }
+      el.innerHTML = '';
+      list.forEach(a => {
+        const d = document.createElement('div');
+        d.className = 'flex items-start justify-between border rounded p-2';
+        const left = document.createElement('div');
+        left.innerHTML = `<div class="font-medium">${a.filename || 'Uploaded file'}</div><div class="text-xs text-gray-600">${a.preview || ''}</div>`;
+        const right = document.createElement('div');
+        right.innerHTML = `<button class="px-2 py-1 bg-primary text-white rounded mr-2" data-id="${a.id}">Load</button>`;
+        d.appendChild(left); d.appendChild(right);
+        el.appendChild(d);
+        right.querySelector('button').addEventListener('click', () => loadAnalysis(a.id));
+      });
+    }
+
+    function renderProfile(u) {
+      if (!u) return;
+      document.getElementById('full_name').value = u.full_name || '';
+      document.getElementById('phone').value = u.phone || '';
+      document.getElementById('address_current').value = u.address_current || '';
+      document.getElementById('address_permanent').value = u.address_permanent || '';
+      document.getElementById('dob').value = u.dob || '';
+      document.getElementById('email').value = u.email || '';
+    }
+
+    async function loadAnalysis(id) {
+      try {
+        const res = await fetch(`/load_analysis/${id}`);
+        if (!res.ok) { alert('Could not load'); return; }
+        const data = await res.json();
+        const viewer = document.getElementById('viewer');
+        const content = document.getElementById('viewerContent');
+        let recHtml = '';
+        if (data.recommended && data.recommended.recommended) {
+          recHtml = '<h4 class="font-medium mt-3">Recommended lawyers</h4><div class="mt-2 space-y-2">';
+          data.recommended.recommended.forEach(r => {
+            recHtml += `<div class="border rounded p-2"><div class="font-medium">${escapeHtml(r.name)}</div><div class="text-xs text-gray-600">Phone: ${escapeHtml(r.phone)} • Won: ${escapeHtml(r.won)} • Region: ${escapeHtml(r.ranking)} • Fees: ${escapeHtml(r.fees)}</div></div>`;
+          });
+          recHtml += '</div>';
+        }
+        content.innerHTML = `<h4 class="font-medium">Plain summary</h4><div class="mt-1">${escapeHtml(data.storySummary || '')}</div>
+          <h4 class="font-medium mt-3">Legal summary</h4><div class="mt-1">${escapeHtml(data.legalSummary || '')}</div>
+          <h4 class="font-medium mt-3">Analysis</h4><pre class="mt-1 text-sm bg-gray-50 p-2 rounded">${escapeHtml(JSON.stringify(data.analysis, null, 2))}</pre>
+          ${recHtml}`;
+        viewer.classList.remove('hidden');
+      } catch (e) { console.error(e); }
+    }
+
+    function escapeHtml(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    document.getElementById('saveProfile').addEventListener('click', async () => {
+      const payload = {
+        full_name: document.getElementById('full_name').value.trim(),
+        phone: document.getElementById('phone').value.trim(),
+        address_current: document.getElementById('address_current').value.trim(),
+        address_permanent: document.getElementById('address_permanent').value.trim(),
+        dob: document.getElementById('dob').value,
+        email: document.getElementById('email').value.trim()
+      };
+      const msg = document.getElementById('profileMsg'); msg.textContent = '';
+      try {
+        const res = await fetch('/profile', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+        const data = await res.json();
+        if (!res.ok) { msg.textContent = data.error || 'Could not save'; msg.className='text-sm text-red-500'; return; }
+        msg.textContent = 'Saved'; msg.className='text-sm text-green-600';
+      } catch (e) { msg.textContent = 'Network error'; msg.className='text-sm text-red-500'; }
+    });
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await fetch('/logout', {method:'POST'});
+      window.location.href = '/';
+    });
+
+    // on load
+    fetchData();
+  </script>
+</body>
+</html>

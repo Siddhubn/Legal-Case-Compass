@@ -2,10 +2,13 @@ import os
 import fitz  # PyMuPDF
 import chromadb
 import google.generativeai as genai
-from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask import Flask, render_template, request, jsonify, send_from_directory, session, redirect, url_for
 from dotenv import load_dotenv
 import json
 import re
+import sqlite3
+from werkzeug.security import generate_password_hash, check_password_hash
+from datetime import datetime
 
 # --- 1. INITIALIZATION ---
 
@@ -21,13 +24,82 @@ except KeyError:
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads' # We'll create this folder
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+# Secret key for session cookies. Set FLASK_SECRET_KEY in .env for production.
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'dev_secret_change_me')
+
+# Users DB (for auth and saved analyses)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+USERS_DB_PATH = os.path.join(BASE_DIR, 'users.sqlite3')
+
+def get_db_connection():
+    conn = sqlite3.connect(USERS_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_user_db():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    # users table (create minimal then migrate to full schema)
+    cur.execute('''
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )
+    ''')
+    # analyses table
+    cur.execute('''
+    CREATE TABLE IF NOT EXISTS analyses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        filename TEXT,
+        story_summary TEXT,
+        legal_summary TEXT,
+        analysis_json TEXT,
+        sources_json TEXT,
+        recommended_json TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(user_id) REFERENCES users(id)
+    )
+    ''')
+    conn.commit()
+    # --- Schema migration: add profile columns if missing ---
+    cur.execute("PRAGMA table_info(users)")
+    cols = [r[1] for r in cur.fetchall()]
+    add_cols = [
+        ("full_name", "TEXT"),
+        ("phone", "TEXT"),
+        ("address_current", "TEXT"),
+        ("address_permanent", "TEXT"),
+        ("dob", "TEXT"),
+        ("email", "TEXT")
+    ]
+    for col, coltype in add_cols:
+        if col not in cols:
+            try:
+                cur.execute(f"ALTER TABLE users ADD COLUMN {col} {coltype}")
+            except Exception as e:
+                print(f"Warning: could not add column {col}: {e}")
+    # ensure analyses.recommended_json exists (safe)
+    cur.execute("PRAGMA table_info(analyses)")
+    anal_cols = [r[1] for r in cur.fetchall()]
+    if 'recommended_json' not in anal_cols:
+        try:
+            cur.execute("ALTER TABLE analyses ADD COLUMN recommended_json TEXT")
+        except Exception as e:
+            print(f"Warning: could not add analyses.recommended_json: {e}")
+    conn.commit()
+    conn.close()
+
+# Initialize user DB
+init_user_db()
 
 # Setup Gemini Models
 embedding_model = "models/text-embedding-004"
 generation_model = genai.GenerativeModel("gemini-2.5-flash") # Using 1.5 Pro
 
 # Setup Vector Database Connection
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "legal_db")
 
 print("Connecting to Vector DB...")
@@ -202,12 +274,63 @@ def get_rag_answer(legal_summary):
             "general_follow_ups": "",
             "disclaimer": "An error occurred."
         }, []
+
+
+# --- 3.D: Simple category detector + sample lawyers ---
+SAMPLE_LAWYERS = {
+    'criminal': [
+        {'name': 'A. Sharma', 'phone': '+91-90000-00001', 'won': '78%', 'ranking': 'City A', 'fees': '₹5,000'},
+        {'name': 'R. Singh', 'phone': '+91-90000-00002', 'won': '65%', 'ranking': 'City B', 'fees': '₹4,000'},
+    ],
+    'family': [
+        {'name': 'M. Gupta', 'phone': '+91-90000-00011', 'won': '70%', 'ranking': 'City A', 'fees': '₹3,500'},
+        {'name': 'S. Rao', 'phone': '+91-90000-00012', 'won': '60%', 'ranking': 'City C', 'fees': '₹3,000'},
+    ],
+    'property': [
+        {'name': 'D. Patel', 'phone': '+91-90000-00021', 'won': '82%', 'ranking': 'City B', 'fees': '₹6,000'},
+        {'name': 'K. Verma', 'phone': '+91-90000-00022', 'won': '55%', 'ranking': 'City C', 'fees': '₹4,500'},
+    ],
+    'contract': [
+        {'name': 'L. Menon', 'phone': '+91-90000-00031', 'won': '68%', 'ranking': 'City A', 'fees': '₹7,000'},
+    ],
+    'other': [
+        {'name': 'P. Nair', 'phone': '+91-90000-00041', 'won': '50%', 'ranking': 'Regionwide', 'fees': '₹2,500'},
+    ]
+}
+
+
+def detect_case_category(analysis_data, legal_summary_text):
+    """Simple keyword-based detector returning one of the sample categories."""
+    text = ''
+    if isinstance(analysis_data, dict):
+        # combine fields
+        text += ' '.join([str(analysis_data.get(k, '')) for k in ['what_has_happened', 'key_legal_points', 'general_follow_ups'] if k in analysis_data])
+    if legal_summary_text:
+        text += ' ' + legal_summary_text
+    text = text.lower()
+
+    # keyword rules (simple)
+    if any(k in text for k in ['murder', 'section 302', 'ipc', 'criminal', 'charge', 'arrest', 'bailable', 'non-bailable']):
+        return 'criminal'
+    if any(k in text for k in ['divorce', 'maintenance', 'custody', 'alimony', 'marriage', 'dowry']):
+        return 'family'
+    if any(k in text for k in ['property', 'land', 'title', 'real estate', 'mutation', 'possession']):
+        return 'property'
+    if any(k in text for k in ['contract', 'agreement', 'breach', 'commercial', 'service agreement']):
+        return 'contract'
+    return 'other'
     
 # --- 4. FLASK WEB ROUTES ---
 
 @app.route('/')
-def index():
-    """Serves the main HTML page."""
+def home_page():
+    """Serves the homepage/landing page."""
+    return render_template('home.html')
+
+
+@app.route('/app')
+def app_page():
+    """Serves the analysis UI page (formerly index)."""
     return render_template('index.html')
 
 @app.route('/analyze', methods=['POST'])
@@ -244,12 +367,40 @@ def analyze_document():
         
         print("--- Job Complete ---")
         
-        # 4. Return all results as JSON
+        # 4. Auto-save analysis for logged-in users
+        try:
+            if session.get('user_id'):
+                # detect category and recommendations
+                category = detect_case_category(analysis_data, legal_summary)
+                recommended = SAMPLE_LAWYERS.get(category, SAMPLE_LAWYERS['other'])
+
+                conn = get_db_connection()
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO analyses (user_id, filename, story_summary, legal_summary, analysis_json, sources_json, recommended_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        session.get('user_id'),
+                        file.filename,
+                        story_summary,
+                        legal_summary,
+                        json.dumps(analysis_data),
+                        json.dumps(sources),
+                        json.dumps({'category': category, 'recommended': recommended}),
+                        datetime.utcnow().isoformat()
+                    )
+                )
+                conn.commit()
+                conn.close()
+        except Exception as e:
+            print(f"Warning: could not save analysis to user DB: {e}")
+
+        # 5. Return all results as JSON
         return jsonify({
             "storySummary": story_summary,
             "legalSummary": legal_summary,
             "analysis": analysis_data,  # <-- This is now an object, not a string
-            "sources": sources
+            "sources": sources,
+            "recommended": {'category': detect_case_category(analysis_data, legal_summary), 'recommended': SAMPLE_LAWYERS.get(detect_case_category(analysis_data, legal_summary), SAMPLE_LAWYERS['other'])}
         })
     else:
         return jsonify({"error": "Invalid file type, please upload a PDF."}), 400
@@ -267,6 +418,204 @@ def get_file(filepath):
     except Exception as e:
         print(f"Error serving file: {e}")
         return "File not found.", 404
+
+
+@app.route('/register', methods=['POST'])
+def register():
+    """Registers a new user. Expects JSON with profile fields.
+    Required: username, password
+    Optional: full_name, phone, address_current, address_permanent, dob, email
+    """
+    # Accept JSON API or standard form POST
+    data = request.get_json(silent=True)
+    if not data:
+        data = request.form
+
+    username = (data.get('username') or '').strip()
+    password = data.get('password') or ''
+    full_name = (data.get('full_name') or '').strip()
+    phone = (data.get('phone') or '').strip()
+    address_current = (data.get('address_current') or '').strip()
+    address_permanent = (data.get('address_permanent') or '').strip()
+    dob = (data.get('dob') or '').strip()
+    email = (data.get('email') or '').strip()
+
+    if not username or not password:
+        return jsonify({'error': 'Username and password are required.'}), 400
+
+    pwd_hash = generate_password_hash(password)
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute('''INSERT INTO users (username, password_hash, created_at, full_name, phone, address_current, address_permanent, dob, email)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                    (username, pwd_hash, datetime.utcnow().isoformat(), full_name, phone, address_current, address_permanent, dob, email))
+        conn.commit()
+        user_id = cur.lastrowid
+        conn.close()
+        # Log user in
+        session['user_id'] = user_id
+        session['username'] = username
+        # If original request was a form submit, redirect to dashboard
+        if not request.is_json:
+            return redirect(url_for('dashboard_page'))
+        return jsonify({'ok': True, 'username': username})
+    except sqlite3.IntegrityError:
+        return jsonify({'error': 'Username already exists.'}), 400
+    except Exception as e:
+        print(f"Error registering user: {e}")
+        return jsonify({'error': 'Internal error.'}), 500
+
+
+@app.route('/login', methods=['POST'])
+def login():
+    """Logs a user in. Expects JSON: {username, password}"""
+    data = request.get_json(silent=True)
+    if not data:
+        data = request.form
+    username = (data.get('username') or '').strip()
+    password = data.get('password') or ''
+
+    if not username or not password:
+        return jsonify({'error': 'Username and password are required.'}), 400
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute('SELECT id, password_hash FROM users WHERE username = ?', (username,))
+        row = cur.fetchone()
+        conn.close()
+        if row and check_password_hash(row['password_hash'], password):
+            session['user_id'] = row['id']
+            session['username'] = username
+            if not request.is_json:
+                return redirect(url_for('dashboard_page'))
+            return jsonify({'ok': True, 'username': username})
+        else:
+            return jsonify({'error': 'Invalid credentials.'}), 401
+    except Exception as e:
+        print(f"Error during login: {e}")
+        return jsonify({'error': 'Internal error.'}), 500
+
+
+@app.route('/logout', methods=['POST'])
+def logout():
+    session.pop('user_id', None)
+    session.pop('username', None)
+    return jsonify({'ok': True})
+
+
+@app.route('/my_analyses', methods=['GET'])
+def my_analyses():
+    """Returns list of analyses for the logged-in user."""
+    if not session.get('user_id'):
+        return jsonify({'error': 'Not authenticated.'}), 401
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        # user profile
+        cur.execute('SELECT id, username, full_name, phone, address_current, address_permanent, dob, email, created_at FROM users WHERE id = ?', (session.get('user_id'),))
+        user = cur.fetchone()
+        # analyses list
+        cur.execute('SELECT id, filename, created_at, substr(story_summary,1,250) as preview FROM analyses WHERE user_id = ? ORDER BY created_at DESC', (session.get('user_id'),))
+        rows = cur.fetchall()
+        conn.close()
+        analyses = [dict(r) for r in rows]
+        user_profile = dict(user) if user else {}
+        return jsonify({'ok': True, 'analyses': analyses, 'user': user_profile})
+    except Exception as e:
+        print(f"Error fetching analyses: {e}")
+        return jsonify({'error': 'Internal error.'}), 500
+
+
+@app.route('/load_analysis/<int:analysis_id>', methods=['GET'])
+def load_analysis(analysis_id):
+    """Return a saved analysis payload for the logged-in user."""
+    if not session.get('user_id'):
+        return jsonify({'error': 'Not authenticated.'}), 401
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute('SELECT * FROM analyses WHERE id = ? AND user_id = ?', (analysis_id, session.get('user_id')))
+        row = cur.fetchone()
+        conn.close()
+        if not row:
+            return jsonify({'error': 'Not found.'}), 404
+        # Reconstruct response similar to /analyze
+        analysis_obj = json.loads(row['analysis_json']) if row['analysis_json'] else {}
+        sources = json.loads(row['sources_json']) if row['sources_json'] else []
+        recommended = json.loads(row['recommended_json']) if row.get('recommended_json') else None
+        if not recommended:
+            # compute on the fly
+            cat = detect_case_category(analysis_obj, row['legal_summary'])
+            recommended = {'category': cat, 'recommended': SAMPLE_LAWYERS.get(cat, SAMPLE_LAWYERS['other'])}
+        return jsonify({
+            'storySummary': row['story_summary'],
+            'legalSummary': row['legal_summary'],
+            'analysis': analysis_obj,
+            'sources': sources,
+            'recommended': recommended
+        })
+    except Exception as e:
+        print(f"Error loading analysis: {e}")
+        return jsonify({'error': 'Internal error.'}), 500
+
+
+@app.route('/profile', methods=['GET'])
+def get_profile():
+    if not session.get('user_id'):
+        return jsonify({'error': 'Not authenticated.'}), 401
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute('SELECT id, username, full_name, phone, address_current, address_permanent, dob, email, created_at FROM users WHERE id = ?', (session.get('user_id'),))
+        row = cur.fetchone()
+        conn.close()
+        if not row:
+            return jsonify({'error': 'Not found.'}), 404
+        return jsonify({'ok': True, 'user': dict(row)})
+    except Exception as e:
+        print(f"Error getting profile: {e}")
+        return jsonify({'error': 'Internal error.'}), 500
+
+
+@app.route('/profile', methods=['POST'])
+def update_profile():
+    if not session.get('user_id'):
+        return jsonify({'error': 'Not authenticated.'}), 401
+    data = request.get_json(force=True)
+    allowed = ['full_name', 'phone', 'address_current', 'address_permanent', 'dob', 'email']
+    updates = {k: (data.get(k) or '').strip() for k in allowed}
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute('''UPDATE users SET full_name=?, phone=?, address_current=?, address_permanent=?, dob=?, email=? WHERE id = ?''',
+                    (updates['full_name'], updates['phone'], updates['address_current'], updates['address_permanent'], updates['dob'], updates['email'], session.get('user_id')))
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True, 'user': updates})
+    except Exception as e:
+        print(f"Error updating profile: {e}")
+        return jsonify({'error': 'Internal error.'}), 500
+
+
+# --- Serve auth and dashboard pages ---
+@app.route('/login', methods=['GET'])
+def login_page():
+    return render_template('login.html')
+
+
+@app.route('/register', methods=['GET'])
+def register_page():
+    return render_template('register.html')
+
+
+@app.route('/dashboard', methods=['GET'])
+def dashboard_page():
+    if not session.get('user_id'):
+        return render_template('login.html')
+    return render_template('dashboard.html')
 
 # --- 5. RUN THE APP ---
 if __name__ == '__main__':

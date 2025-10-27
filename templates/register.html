@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Register - Legal Case Compass</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen flex items-center justify-center bg-gray-50">
+  <nav class="bg-white shadow fixed top-0 left-0 right-0">
+    <div class="max-w-6xl mx-auto px-4">
+      <div class="flex justify-between">
+        <div class="flex space-x-4">
+          <a href="/" class="flex items-center py-4 px-2 text-primary font-bold">
+            <img src="/static/lcc_logo.png" alt="logo" class="h-10 w-10 mr-2" />
+            <span>Legal Case Compass</span>
+          </a>
+          <a href="/app" class="py-4 px-2 text-gray-700 hover:text-primary">Analyze</a>
+        </div>
+        <div class="flex items-center space-x-1">
+          <a href="/login" class="py-2 px-3 border rounded">Login</a>
+        </div>
+      </div>
+    </div>
+  </nav>
+  <div class="pt-20"></div>
+  <div class="max-w-2xl w-full bg-white rounded-lg shadow p-6">
+    <h1 class="text-2xl font-semibold mb-4">Create an account</h1>
+
+    <div id="error" class="text-sm text-red-500 mb-3 hidden"></div>
+
+    <form method="post" action="/register">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700">Full name</label>
+          <input name="full_name" id="full_name" class="mt-1 block w-full border rounded px-3 py-2" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700">Phone</label>
+          <input name="phone" id="phone" class="mt-1 block w-full border rounded px-3 py-2" />
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-sm font-medium text-gray-700">Current address</label>
+          <input name="address_current" id="address_current" class="mt-1 block w-full border rounded px-3 py-2" />
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-sm font-medium text-gray-700">Permanent address</label>
+          <input name="address_permanent" id="address_permanent" class="mt-1 block w-full border rounded px-3 py-2" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700">Date of birth</label>
+          <input name="dob" id="dob" type="date" class="mt-1 block w-full border rounded px-3 py-2" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700">Email</label>
+          <input name="email" id="email" type="email" class="mt-1 block w-full border rounded px-3 py-2" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700">Username</label>
+          <input name="username" id="username" class="mt-1 block w-full border rounded px-3 py-2" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700">Password</label>
+          <input name="password" id="password" type="password" class="mt-1 block w-full border rounded px-3 py-2" />
+        </div>
+      </div>
+
+      <div class="mt-4 flex items-center justify-between">
+        <button type="submit" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded">Create account</button>
+        <a href="/login" class="text-sm text-primary underline">Already have an account?</a>
+      </div>
+    </form>
+  </div>
+  
+</body>
+</html>
