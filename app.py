@@ -545,7 +545,8 @@ def load_analysis(analysis_id):
         # Reconstruct response similar to /analyze
         analysis_obj = json.loads(row['analysis_json']) if row['analysis_json'] else {}
         sources = json.loads(row['sources_json']) if row['sources_json'] else []
-        recommended = json.loads(row['recommended_json']) if row.get('recommended_json') else None
+        # sqlite3.Row does not support .get(); use index access
+        recommended = json.loads(row['recommended_json']) if row['recommended_json'] else None
         if not recommended:
             # compute on the fly
             cat = detect_case_category(analysis_obj, row['legal_summary'])

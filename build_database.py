@@ -16,16 +16,18 @@ load_dotenv()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # List of single PDF files
+"""
 SINGLE_FILES = [
     os.path.join(BASE_DIR, "indian_constitution.pdf"),
     os.path.join(BASE_DIR, "ipc_sections", "ipc.pdf"), # Assuming the PDF is inside this folder
     os.path.join(BASE_DIR, "cpc_sections", "cpc.pdf")  # Assuming the PDF is inside this folder
 ]
+"""
 
 # List of directories containing judgment PDFs (2015-2025)
 JUDGEMENT_DIRS = [
     os.path.join(BASE_DIR, "supreme_court_judgments", str(year))
-    for year in range(2010, 2020) # 2015 to 2025
+    for year in range(2012, 2020) # 2015 to 2025
 ]
 
 # 2. CONFIGURE YOUR LOCAL DATABASE
@@ -53,12 +55,13 @@ def get_all_pdf_files():
     pdf_files = []
 
     # Add all single files
+    """
     for file_path in SINGLE_FILES:
         if os.path.exists(file_path):
             pdf_files.append(file_path)
         else:
             print(f"Warning: Single file not found at {file_path}")
-
+    """
     # Add all files from judgment directories
     for dir_path in JUDGEMENT_DIRS:
         if os.path.exists(dir_path):
