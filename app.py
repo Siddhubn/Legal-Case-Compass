@@ -9,6 +9,8 @@ import re
 import sqlite3
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
+import requests
+from llama_cpp import Llama
 
 # --- 1. INITIALIZATION ---
 
@@ -95,9 +97,61 @@ def init_user_db():
 # Initialize user DB
 init_user_db()
 
-# Setup Gemini Models
 embedding_model = "models/text-embedding-004"
 generation_model = genai.GenerativeModel("gemini-2.5-flash") # Using 1.5 Pro
+
+# Setup Mistral-7B-Instruct model for offline use (as fallback)
+MISTRAL_MODEL_PATH = os.path.join(os.path.dirname(__file__), "offline-access", "mistral-7b-instruct-v0.2.Q4_K_M.gguf")
+llm_offline = None
+if os.path.exists(MISTRAL_MODEL_PATH):
+    try:
+        llm_offline = Llama(
+            model_path=MISTRAL_MODEL_PATH,
+            n_gpu_layers=28,  # Increase for more GPU utilization (max 32 for Mistral)
+            n_ctx=4096,
+            verbose=False
+        )
+        print("✅ Loaded Mistral-7B-Instruct model for offline use (fallback).")
+    except Exception as e:
+        print(f"Error loading Mistral model: {e}")
+else:
+    print(f"Offline model not found at {MISTRAL_MODEL_PATH}")
+
+# Ollama Configuration (Primary offline option)
+OLLAMA_API_URL = "http://localhost:11434/api/generate"
+OLLAMA_MODEL = "mistral"  # Change to "neural-chat" or other models as needed
+ollama_available = False
+
+def check_ollama_availability():
+    """Check if Ollama is running and accessible."""
+    try:
+        response = requests.get("http://localhost:11434/api/tags", timeout=2)
+        return response.status_code == 200
+    except Exception:
+        return False
+
+# Check Ollama on startup
+if check_ollama_availability():
+    print("✅ Ollama is available at localhost:11434")
+    ollama_available = True
+else:
+    print("⚠️  Ollama is not running. Will use Mistral model as fallback.")
+    print("   To use Ollama, run: ollama serve")
+
+# Manual switch for online/offline mode (None = auto-detect)
+FORCE_MODE = 'offline'  # Set to 'online', 'offline', or None for auto
+
+# Connectivity check with manual override
+def is_online():
+    if FORCE_MODE == 'online':
+        return True
+    if FORCE_MODE == 'offline':
+        return False
+    try:
+        requests.get("https://www.google.com", timeout=3)
+        return True
+    except Exception:
+        return False
 
 # Setup Vector Database Connection
 DB_PATH = os.path.join(BASE_DIR, "legal_db")
@@ -140,56 +194,158 @@ def get_gemini_embedding(text):
         print(f"Error getting embedding: {e}")
         return None
 
+def query_ollama(prompt, max_tokens=512):
+    """Query Ollama API for text generation."""
+    try:
+        response = requests.post(
+            OLLAMA_API_URL,
+            json={
+                "model": OLLAMA_MODEL,
+                "prompt": prompt,
+                "stream": False,
+                "num_predict": max_tokens
+            },
+            timeout=300  # 5 minutes timeout for long responses
+        )
+        if response.status_code == 200:
+            return response.json().get("response", "")
+        else:
+            print(f"Ollama API error: {response.status_code}")
+            return None
+    except Exception as e:
+        print(f"Error querying Ollama: {e}")
+        return None
+
+def get_offline_response(prompt, max_tokens=512):
+    """
+    Get response from offline LLM.
+    Tries Ollama first (GPU-accelerated), falls back to Mistral.
+    """
+    # Try Ollama first (preferred, GPU-accelerated) - check dynamically
+    if check_ollama_availability():
+        print("Using Ollama for offline inference...")
+        response = query_ollama(prompt, max_tokens)
+        if response:
+            return response
+        else:
+            print("Ollama query failed, falling back to Mistral...")
+    
+    # Fallback to Mistral model
+    if llm_offline:
+        print("Using Mistral model for offline inference...")
+        try:
+            response = llm_offline(prompt, max_tokens=max_tokens)
+            return response["choices"][0]["text"] if "choices" in response else response["text"]
+        except Exception as e:
+            print(f"Error with Mistral model: {e}")
+            return None
+    
+    return None
+
 # --- 3. CORE APPLICATION LOGIC (THE "PIPELINE") ---
 
 def get_summaries_from_text(document_text):
     """
-    Uses Gemini to generate the two summaries.
-    This is Part A of our plan.
+    Uses Gemini if online, otherwise Ollama (or Mistral fallback) for summaries.
     """
     print("Generating summaries...")
-    try:
-        # Prompt 1: Story Summary
+    if is_online():
+        print("📡 MODE: ONLINE (Using Gemini API)")
+        try:
+            # Prompt 1: Story Summary
+            prompt_story = f"""
+            Read the following court document. Explain what happened in the case 
+            in 1-2 paragraphs, using simple, non-legal language. 
+            Describe the events like a straightforward narrative or story.
+
+            DOCUMENT:
+            {document_text}
+            """
+            story_response = generation_model.generate_content(prompt_story)
+
+            # Prompt 2: Legal Summary
+            prompt_legal = f"""
+            Act as an expert legal analyst. Read the following court document and
+            extract all key legal information. List all cited IPC/CPC sections,
+            key dates, and a summary of the most recent actions or judgments.
+            Be concise and formal. Output in one single paragraph.
+
+            DOCUMENT:
+            {document_text}
+            """
+            legal_response = generation_model.generate_content(prompt_legal)
+
+            return story_response.text, legal_response.text
+        except Exception as e:
+            print(f"Error generating summaries: {e}")
+            return "Error: Could not generate story summary.", "Error: Could not generate legal summary."
+    else:
+        print("🖥️  MODE: OFFLINE (Using Ollama/Mistral)")
+        # Use offline LLM (Ollama or Mistral)
+        # Prompt 1: Story Summary - Make it very simple and narrative-like
         prompt_story = f"""
-        Read the following court document. Explain what happened in the case 
-        in 1-2 paragraphs, using simple, non-legal language. 
-        Describe the events like a straightforward narrative or story.
+You are a storyteller explaining a court case to someone with no legal background.
 
-        DOCUMENT:
-        {document_text}
-        """
-        story_response = generation_model.generate_content(prompt_story)
-        
-        # Prompt 2: Legal Summary
+Read this court document carefully and explain what happened in simple, everyday language.
+Write 2-3 paragraphs that tell the story of what happened, who was involved, what they wanted, and what the court decided.
+
+Use very simple words. Avoid legal jargon. If you must use a legal term, explain it in parentheses.
+Write as if you're explaining to a friend or family member.
+
+DOCUMENT:
+{document_text}
+
+Now tell the story in simple terms:
+"""
+        story_text = get_offline_response(prompt_story, max_tokens=600)
+        if not story_text:
+            story_text = "Error: Offline model not available or failed to generate response."
+
+        # Prompt 2: Legal Summary - Focus on key facts and timelines
         prompt_legal = f"""
-        Act as an expert legal analyst. Read the following court document and
-        extract all key legal information. List all cited IPC/CPC sections,
-        key dates, and a summary of the most recent actions or judgments.
-        Be concise and formal. Output in one single paragraph.
+You are a legal analyst. Read this court case and provide a formal legal summary.
 
-        DOCUMENT:
-        {document_text}
-        """
-        legal_response = generation_model.generate_content(prompt_legal)
-        
-        return story_response.text, legal_response.text
-        
-    except Exception as e:
-        print(f"Error generating summaries: {e}")
-        return "Error: Could not generate story summary.", "Error: Could not generate legal summary."
+Include:
+1. Who is involved (plaintiff/appellant vs defendant/respondent)
+2. What laws were used (mention specific sections like Section 4, Section 6, etc.)
+3. Important dates and timeline
+4. What the courts decided at each level (High Court, Supreme Court, etc.)
+5. The final ruling and what it means
+
+Write as one paragraph. Be specific about law sections and dates.
+
+DOCUMENT:
+{document_text}
+
+Legal summary:
+"""
+        legal_text = get_offline_response(prompt_legal, max_tokens=600)
+        if not legal_text:
+            legal_text = "Error: Offline model not available or failed to generate response."
+
+        return story_text.strip(), legal_text.strip()
 
 
 def get_rag_answer(legal_summary):
     """
-    Uses the legal summary to search the DB and generate the final answer
-    in a structured JSON format.
+    Uses Gemini if online, otherwise Ollama (or Mistral fallback) for RAG.
     """
     print("Generating RAG answer...")
-    
+
     # --- 3.A: Embed the User's Query ---
-    query_vector = get_gemini_embedding(legal_summary)
-    if not query_vector:
-        return {"error": "Could not create an embedding for your document."}, []
+    print("Creating embedding for case summary...")
+    if is_online():
+        print("📡 MODE: ONLINE (Using Gemini embeddings)")
+        query_vector = get_gemini_embedding(legal_summary)
+        if not query_vector:
+            return {"error": "Could not create an embedding for your document."}, []
+    else:
+        # For offline, use the same embedding model as DB build (if available)
+        # If DB was built with Gemini embeddings, offline retrieval may be less accurate
+        print("🖥️  MODE: OFFLINE (Using Gemini embeddings for retrieval)")
+        query_vector = get_gemini_embedding(legal_summary)
+        if not query_vector:
+            return {"error": "Could not create an embedding for your document (offline)."}, []
 
     # --- 3.B: Search the Vector Database ---
     print("Searching database for relevant cases...")
@@ -210,38 +366,66 @@ def get_rag_answer(legal_summary):
     # --- 3.C: Generate the Final Answer (as JSON) ---
     print("Generating final answer with RAG...")
     
-    # SLIGHTLY UPDATED PROMPT
+    # Log which mode will be used for RAG answer
+    if is_online():
+        print("📡 MODE: ONLINE (Using Gemini API for RAG analysis)")
+    else:
+        print("🖥️  MODE: OFFLINE (Using Ollama/Mistral for RAG analysis)")
+
     final_prompt = f"""
-    You are a helpful legal AI assistant. You cannot give legal advice.
-    Your goal is to provide information and general options based on the
-    user's document and relevant legal context.
+You are a helpful legal information assistant. Your job is to help someone understand their court case.
 
-    **User's Case Summary:**
-    {legal_summary}
+USER'S CASE SUMMARY:
+{legal_summary}
 
-    **Relevant Legal Information (from past cases, IPC, CPC, Constitution):**
-    {context}
+SIMILAR CASES AND LEGAL INFORMATION FROM DATABASE:
+{context}
 
-    **Your Task:**
-    Based *only* on the User's Case Summary and the Relevant Legal Information
-    provided above, generate a JSON object with three specific keys:
-    1. "what_has_happened": A simple, plain-text explanation of the case status.
-    2. "key_legal_points": A plain-text, bulleted list (using '*' or '-') of the main legal sections or principles.
-    3. "general_follow_ups": A plain-text, bulleted list (using '*' or '-') of general, safe next steps.
-    
-    **CRITICAL:** ONLY output the raw JSON object. Your entire response must
-    start with {{ and end with }}. Do not add *any* text before or after.
-    """
-    
+YOUR TASK:
+Analyze the user's case based on the summary and similar cases above. Then create a JSON response with three sections:
+
+1. "what_has_happened": Write a clear explanation of what has happened in the case so far. Explain:
+   - What the court has decided
+   - What happens next (any actions needed)
+   - Important deadlines or timelines
+   Write in simple language, as if explaining to someone who is not a lawyer.
+
+2. "key_legal_points": List the most important laws and legal concepts involved. For each point:
+   - State the law section (like "Section 24 of the 2013 Act")
+   - Explain briefly what it means in simple terms
+   Use bullets (- or *). Keep each point short and clear.
+
+3. "general_follow_ups": List important next steps the person should take:
+   - Monitor important deadlines
+   - Gather necessary documents
+   - Actions recommended
+   Write as a bulleted list. Focus on practical steps.
+
+IMPORTANT: 
+- Write everything in simple, everyday language
+- Avoid legal jargon unless absolutely necessary
+- If you use legal terms, explain them simply
+- Be specific about dates, amounts, and deadlines if mentioned
+- Output ONLY the JSON object with no text before or after
+- Start with {{ and end with }}
+
+Generate the JSON now:
+"""
+
     try:
-        final_response = generation_model.generate_content(final_prompt)
-        
-        # --- NEW, MORE ROBUST JSON PARSING ---
-        raw_text = final_response.text
-        
+        if is_online():
+            final_response = generation_model.generate_content(final_prompt)
+            raw_text = final_response.text
+        else:
+            # Use offline LLM (Ollama or Mistral)
+            raw_text = get_offline_response(final_prompt, max_tokens=1024)
+            if not raw_text:
+                print("Offline model not available.")
+                return {"error": "Offline model not available."}, []
+
         # Use regex to find the JSON block, even if the AI adds text
         match = re.search(r'\{.*\}', raw_text, re.DOTALL)
-        
+
         if not match:
             print(f"JSON DECODE ERROR: No JSON object found in response.")
             print(f"Raw response was: {raw_text}")
@@ -249,16 +433,14 @@ def get_rag_answer(legal_summary):
 
         clean_json_string = match.group(0)
         analysis_data = json.loads(clean_json_string)
-        # --- END OF NEW PARSING ---
-        
+
         # Add the disclaimer to the data
         analysis_data["disclaimer"] = ("Disclaimer: This is not legal advice. I am an AI assistant. "
                                        "You must consult a qualified lawyer for advice on your specific case.")
-        
+
         return analysis_data, sources
 
     except json.JSONDecodeError as e:
-        # This will now catch both "No JSON" and "Malformed JSON"
         print(f"JSON DECODE ERROR: {e}")
         return {
             "what_has_happened": "Error: The AI returned an invalid analysis format.",
