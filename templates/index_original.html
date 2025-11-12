@@ -113,15 +113,6 @@
                     </label>
                     <input type="file" id="pdfFile" accept=".pdf" class="hidden">
                     
-                    <div class="w-full">
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Your Role in the Case:</label>
-                        <select id="userRole" class="w-full px-4 py-3 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500">
-                            <option value="">Select your role...</option>
-                            <option value="plaintiff">Plaintiff / Petitioner / Appellant</option>
-                            <option value="defendant">Defendant / Respondent</option>
-                        </select>
-                    </div>
-                    
                     <button id="analyzeButton" class="w-full px-6 py-3 text-base font-medium text-white bg-green-600 rounded-lg shadow-md hover:bg-green-700 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2">
                         Analyze Document
                     </button>
@@ -174,14 +165,14 @@
                             
                             <div class="py-4">
                                 <h3 class="text-lg font-medium text-gray-800">2. Key Legal Points</h3>
-                                <p id="analysis_part2" class="whitespace-pre-wrap break-words font-sans text-base text-gray-700 leading-relaxed mt-2"></p>
+                                <ul id="analysis_part2" class="list-disc list-inside space-y-1 text-base text-gray-700 leading-relaxed mt-2">
+                                    </ul>
                             </div>
                             
                             <div class="py-4">
                                 <h3 class="text-lg font-medium text-gray-800">3. General Follow-Ups</h3>
-                                <p class="text-sm text-gray-600 mb-3 italic">Recommended actions based on your case and similar successful cases.</p>
-                                <div id="analysis_part3" class="space-y-3 text-base text-gray-700 leading-relaxed mt-2">
-                                    </div>
+                                <ul id="analysis_part3" class="list-disc list-inside space-y-1 text-base text-gray-700 leading-relaxed mt-2">
+                                    </ul>
                             </div>
                             
                             <div class="py-4">
@@ -243,67 +234,6 @@
         });
 
         
-        // --- HELPER FUNCTION FOR DETAILED RECOMMENDATIONS ---
-        /**
-         * Takes detailed recommendation data and displays as numbered paragraphs.
-         * @param {string} elementId - The ID of the container element.
-         * @param {string|string[]} textData - The raw data from the AI.
-         */
-        function populateDetailedRecommendations(elementId, textData) {
-            const container = document.getElementById(elementId);
-            container.innerHTML = ''; // Clear old items
-
-            console.log('populateDetailedRecommendations called with:', textData);
-
-            if (!textData || (Array.isArray(textData) && textData.length === 0)) {
-                container.innerHTML = '<p class="text-yellow-600 bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded-r italic">⚠️ No strategic recommendations were generated. This may happen if the AI response was incomplete. Please try uploading the document again.</p>';
-                return;
-            }
-
-            let items = [];
-
-            // Check if textData is an array OR a string
-            if (Array.isArray(textData)) {
-                items = textData
-                    .map(item => {
-                        if (typeof item === 'object' && item !== null) {
-                            return JSON.stringify(item);
-                        }
-                        return typeof item === 'string' ? item : String(item || '');
-                    })
-                    .filter(item => item.trim() !== '');
-            } else if (typeof textData === 'string') {
-                // Split by double newlines or numbered patterns
-                items = textData.split(/\n\n+|\d+\.\s+/).map(item => String(item).trim()).filter(item => item !== '');
-            } else if (typeof textData === 'object' && textData !== null) {
-                items = [JSON.stringify(textData)];
-            }
-
-            if (items.length === 0) {
-                container.innerHTML = '<p class="text-yellow-600 bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded-r italic">⚠️ No strategic recommendations were generated. This may happen if the AI response was incomplete. Please try uploading the document again.</p>';
-                return;
-            }
-
-            // Create numbered paragraphs with enhanced styling
-            items.forEach((item, index) => {
-                const div = document.createElement('div');
-                div.className = 'bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r';
-                
-                const number = document.createElement('span');
-                number.className = 'font-bold text-blue-700 text-lg';
-                number.textContent = `${index + 1}. `;
-                
-                const text = document.createElement('span');
-                text.className = 'text-gray-800';
-                text.textContent = item.replace(/^[\s*•-]+/g, '').trim();
-                
-                div.appendChild(number);
-                div.appendChild(text);
-                container.appendChild(div);
-            });
-        }
-        // --- END OF DETAILED RECOMMENDATIONS FUNCTION ---
-
         // --- UPDATED ROBUST HELPER FUNCTION ---
         /**
          * Takes AI data (either a string or an array) and populates a <ul> element.
@@ -324,23 +254,12 @@
             // Check if textData is an array OR a string
             if (Array.isArray(textData)) {
                 // It's an array (e.g., ["item 1", "item 2"])
-                items = textData
-                    .map(item => {
-                        // Handle objects by converting to JSON string
-                        if (typeof item === 'object' && item !== null) {
-                            return JSON.stringify(item);
-                        }
-                        return typeof item === 'string' ? item : String(item || '');
-                    })
-                    .filter(item => item.trim() !== '');
+                items = textData.filter(item => item && item.trim() !== '');
             } else if (typeof textData === 'string') {
                 // It's a string (e.g., "* item 1\n* item 2")
-                items = textData.split('\n').map(item => String(item)).filter(item => item.trim() !== '');
-            } else if (typeof textData === 'object' && textData !== null) {
-                // It's a single object, convert to string
-                items = [JSON.stringify(textData)];
+                items = textData.split('\n').filter(item => item.trim() !== '');
             } else {
-                // It's something else, show error
+                // It's something else (e.g., an object), show error
                 listElement.innerHTML = '<li class="text-red-500 italic">Error: Invalid data format received.</li>';
                 return;
             }
@@ -363,18 +282,12 @@
         // Main analysis button click event
         document.getElementById('analyzeButton').addEventListener('click', async () => {
             const file = fileInput.files[0];
-            const userRole = document.getElementById('userRole').value;
             const loader = document.getElementById('loader');
             const resultsSection = document.getElementById('results');
             const placeholderSection = document.getElementById('results-placeholder');
             
             if (!file) {
                 alert('Please select a PDF file first.');
-                return;
-            }
-            
-            if (!userRole) {
-                alert('Please select your role in the case (Plaintiff or Defendant).');
                 return;
             }
 
@@ -386,7 +299,6 @@
 
             const formData = new FormData();
             formData.append('file', file);
-            formData.append('user_role', userRole);
 
             try {
                 const response = await fetch('/analyze', {
@@ -400,13 +312,13 @@
                 }
 
                 const data = await response.json();
-                
-                // Debug: Log the received data structure
-                console.log('Received analysis data:', data.analysis);
 
                 // --- UPDATED: POPULATE RESULTS FROM JSON ---
                 // Populate simple summaries
+                // storySummary is a plain paragraph (pre)
                 document.getElementById('storySummary').textContent = data.storySummary || "No summary available.";
+                // legalSummary is a list (ul)
+                // legalSummary is a plain paragraph (pre)
                 document.getElementById('legalSummary').textContent = data.legalSummary || "No summary available.";
 
                 // Populate the new structured analysis
@@ -414,22 +326,9 @@
                 document.getElementById('analysis_part1').textContent = 
                     data.analysis.what_has_happened || "No information available.";
                 
-                // analysis_part2 is now also a paragraph (not a list)
-                const keyPoints = data.analysis.key_legal_points || "No legal points available.";
-                if (typeof keyPoints === 'string') {
-                    // It's a paragraph string
-                    document.getElementById('analysis_part2').textContent = keyPoints;
-                } else if (Array.isArray(keyPoints)) {
-                    // Backward compatibility: if it's still an array, convert to paragraph
-                    document.getElementById('analysis_part2').textContent = keyPoints.join(' ');
-                } else {
-                    document.getElementById('analysis_part2').textContent = "No legal points available.";
-                }
-                
-                // analysis_part3 is general follow-ups (detailed paragraphs)
-                const followUps = data.analysis.general_follow_ups || [];
-                console.log('General follow-ups:', followUps);
-                populateDetailedRecommendations('analysis_part3', followUps);
+                // analysis_part2 and 3 are lists (ul)
+                populateList('analysis_part2', data.analysis.key_legal_points);
+                populateList('analysis_part3', data.analysis.general_follow_ups);
                     
                 // analysis_disclaimer is plain text (pre)
                 document.getElementById('analysis_disclaimer').textContent = 

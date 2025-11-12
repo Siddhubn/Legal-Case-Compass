@@ -172,28 +172,17 @@ def is_online():
         return False
 
 # Setup Vector Database Connection
-# Using UNIVERSAL database (compatible with both online and offline modes)
-DB_PATH = os.path.join(BASE_DIR, "legal_db_universal")
-COLLECTION_NAME = "legal_brain_universal"
+DB_PATH = os.path.join(BASE_DIR, "legal_db")
 
-# Backup: Old Gemini-based database (preserved for reference)
-# DB_PATH_OLD = os.path.join(BASE_DIR, "legal_db")
-# COLLECTION_NAME_OLD = "legal_brain"
-
-print("Connecting to Universal Vector DB...")
-print(f"[INFO] Database: {DB_PATH}")
-print(f"[INFO] Collection: {COLLECTION_NAME}")
+print("Connecting to Vector DB...")
 try:
     db_client = chromadb.PersistentClient(path=DB_PATH)
-    collection = db_client.get_collection(COLLECTION_NAME)
-    print(f"[OK] Connected to Universal Vector DB.")
-    print(f"[INFO] Database contains {collection.count()} chunks")
+    collection = db_client.get_collection("legal_brain")
+    print("[OK] Connected to Vector DB.")
 except Exception as e:
     print(f"[FATAL ERROR] Could not connect to ChromaDB at {DB_PATH}")
-    print("Have you run the 'build_database_universal.py' script first?")
+    print("Have you run the 'build_database.py' script first?")
     print(f"Error: {e}")
-    print("\nTo build the universal database, run:")
-    print("  python build_database_universal.py")
     exit()
 
 # --- 2. HELPER FUNCTIONS ---
@@ -395,11 +384,12 @@ Legal summary:
         return story_text.strip(), legal_text.strip()
 
 
-def get_rag_answer(legal_summary, story_summary, user_role='unknown'):
+def get_rag_answer(legal_summary, story_summary, user_role='unknown', original_doc_text=''):
     """
     Uses Gemini if online, otherwise Ollama (or Mistral fallback) for RAG.
     Now generates analysis in two stages for better quality.
-    Takes legal_summary, story_summary, and user_role as parameters.
+    Takes legal_summary, story_summary, user_role, and original_doc_text as parameters.
+    original_doc_text is used to create a deterministic hash for consistent source retrieval.
     """
     print(f"Generating RAG answer with two-stage generation (role: {user_role})...")
     sys.stdout.flush()
@@ -420,28 +410,35 @@ def get_rag_answer(legal_summary, story_summary, user_role='unknown'):
     print("Creating deterministic search query for consistent results...")
     sys.stdout.flush()
     
-    # Create a hash of the FULL legal summary for true consistency
+    # Create a hash from ORIGINAL DOCUMENT for true consistency
+    # This ensures same document = same hash = same sources ALWAYS
     import hashlib
-    content_hash = hashlib.md5(legal_summary.encode()).hexdigest()
-    print(f"[DEBUG] Document content hash: {content_hash[:12]}")
     
-    # Create DETERMINISTIC search query (not using embeddings for consistency)
+    # Use original document if available, otherwise fall back to legal summary
+    text_for_hash = original_doc_text if original_doc_text else legal_summary
+    content_hash = hashlib.md5(text_for_hash.encode()).hexdigest()
+    print(f"[DEBUG] Document content hash: {content_hash[:12]} (from {'original doc' if original_doc_text else 'legal summary'})")
+    
+    # Extract key elements from ORIGINAL DOCUMENT (not AI summary) for consistency
+    # This ensures the search query is based on actual document content, not AI interpretation
+    text_for_query = original_doc_text if original_doc_text else legal_summary
+    
     # Extract key elements that define the case plot
-    sections = sorted(set(re.findall(r'Section \d+[A-Z]*', legal_summary)))[:5]
-    codes = sorted(set(re.findall(r'IPC|CPC|Cr\.P\.C\.|Navy Act|Army Act|Constitution', legal_summary)))[:3]
+    sections = sorted(set(re.findall(r'Section \d+[A-Z]*', text_for_query)))[:5]
+    codes = sorted(set(re.findall(r'IPC|CPC|Cr\.P\.C\.|Navy Act|Army Act|Constitution', text_for_query)))[:3]
     
     # Extract plot elements (actions and outcomes)
     actions = sorted(set(re.findall(
         r'convicted|acquitted|dismissed|allowed|granted|denied|quashed|upheld|reversed|remanded|discharged',
-        legal_summary, re.IGNORECASE
+        text_for_query, re.IGNORECASE
     )))[:3]
     
     subjects = sorted(set(re.findall(
         r'murder|robbery|theft|fraud|negligence|assault|corruption|sanction|bail|custody|appeal|prosecution',
-        legal_summary, re.IGNORECASE
+        text_for_query, re.IGNORECASE
     )))[:3]
     
-    # Build DETERMINISTIC query (same input = same query = same results)
+    # Build DETERMINISTIC query (same document = same query = same results ALWAYS)
     query_parts = []
     if sections:
         query_parts.extend(sections)
@@ -453,12 +450,13 @@ def get_rag_answer(legal_summary, story_summary, user_role='unknown'):
         query_parts.extend([a.lower() for a in actions])
     
     # Create deterministic query string
-    deterministic_query = ' '.join(query_parts) if query_parts else legal_summary[:500]
+    deterministic_query = ' '.join(query_parts) if query_parts else text_for_query[:500]
     
-    # Create query hash for caching
-    query_hash = hashlib.md5(deterministic_query.encode()).hexdigest()[:12]
+    # Use DOCUMENT HASH as query hash for 100% consistency
+    # Same document = same hash = same cached sources
+    query_hash = content_hash[:12]
     
-    print(f"[DEBUG] Query hash: {query_hash} (SAME hash = SAME sources)")
+    print(f"[DEBUG] Query hash: {query_hash} (SAME document = SAME hash = SAME sources)")
     print(f"[DEBUG] Query: {deterministic_query[:100]}...")
     sys.stdout.flush()
     
@@ -483,6 +481,10 @@ def get_rag_answer(legal_summary, story_summary, user_role='unknown'):
         print(f"[WARNING] Could not read cache: {e}")
     
     # --- 3.C: Search the Vector Database (Deterministic Text Search) ---
+    # Initialize sources and context
+    sources = []
+    context = ""
+    
     if cached_sources:
         # Use cached sources
         sources = cached_sources
@@ -513,39 +515,41 @@ def get_rag_answer(legal_summary, story_summary, user_role='unknown'):
         sys.stdout.flush()
         
         try:
-            print("[INFO] Using universal semantic search (ChromaDB built-in embeddings)...")
+            print("[INFO] Using keyword-based search (compatible with Gemini embeddings)...")
             sys.stdout.flush()
             
-            # Universal database uses ChromaDB's built-in embeddings
-            # No need to create embeddings manually - ChromaDB handles it!
+            # Since database was built with Gemini embeddings (768 dim),
+            # we need to use Gemini embeddings for search too
+            # Create embedding from deterministic query
             try:
-                print("[DEBUG] Searching with query text (ChromaDB auto-embeds)...")
+                print("[DEBUG] Creating Gemini embedding for search...")
                 sys.stdout.flush()
+                query_embedding = get_gemini_embedding(deterministic_query)
                 
-                # ChromaDB's query() method with query_texts automatically:
-                # 1. Creates embeddings using the same model as the database
-                # 2. Performs similarity search
-                # 3. Returns results - all in one call!
-                search_results = collection.query(
-                    query_texts=[deterministic_query],  # Pass text directly!
-                    n_results=20,
-                    include=["documents", "metadatas", "distances"]
-                )
-                
-                print("[OK] Search completed successfully")
-                sys.stdout.flush()
+                if query_embedding:
+                    print("[OK] Embedding created, searching...")
+                    sys.stdout.flush()
+                    
+                    search_results = collection.query(
+                        query_embeddings=[query_embedding],
+                        n_results=20,
+                        include=["documents", "metadatas", "distances"]
+                    )
+                else:
+                    raise Exception("Could not create embedding")
                     
             except Exception as embed_error:
-                print(f"[ERROR] Search failed: {embed_error}")
-                print("[INFO] Falling back to general analysis")
+                print(f"[ERROR] Embedding failed: {embed_error}")
+                print("[INFO] Cannot search without embeddings (database uses Gemini 768-dim)")
                 sys.stdout.flush()
                 
                 # Set empty results and continue with analysis
-                context = "Unable to search database. Providing general analysis based on the case details."
+                context = "Unable to search database (embedding dimension mismatch). Providing general analysis based on the case details."
                 sources = []
                 search_results = {'documents': [[]], 'metadatas': [[]], 'distances': [[]]}
-        
-            if search_results['documents'][0]:
+            
+            # Process search results if we have any
+            if search_results.get('documents') and search_results['documents'][0]:
                 documents = search_results['documents'][0]
                 metadatas = search_results['metadatas'][0]
                 distances = search_results.get('distances', [[]])[0] if 'distances' in search_results else [0] * len(documents)
@@ -553,19 +557,20 @@ def get_rag_answer(legal_summary, story_summary, user_role='unknown'):
                 print(f"[INFO] Analyzing {len(documents)} potential matches...")
                 sys.stdout.flush()
                 
-                # Filter by similarity - STRICT threshold for quality
-                # Only keep top 5-7 most similar cases
+                # Filter by similarity - Get TOP 7 most similar cases
+                # IMPORTANT: Results are sorted by distance (lower = more similar)
+                # This ensures we ALWAYS get the same top 7 cases for the same document
                 relevant_docs = []
                 relevant_sources = []
                 seen = set()
                 
-                # Sort by distance (lower = more similar)
+                # Sort by distance (lower = more similar) - DETERMINISTIC ORDER
                 sorted_results = sorted(zip(documents, metadatas, distances), key=lambda x: x[2])
                 
                 for doc, meta, dist in sorted_results:
                     src = meta['source']
                     
-                    # Stop after 7 sources OR if similarity drops too much
+                    # Stop after exactly 7 sources (top 7 most similar)
                     if len(relevant_sources) >= 7:
                         break
                     
@@ -626,6 +631,12 @@ def get_rag_answer(legal_summary, story_summary, user_role='unknown'):
                     sources = []
                 
                 sys.stdout.flush()
+            else:
+                # No documents found in search results
+                print("[INFO] No documents returned from vector search")
+                context = "No similar cases found in database. Providing analysis based on case details."
+                sources = []
+                
         except TimeoutError:
             print(f"[ERROR] Database search timed out")
             context = "Database timeout. Providing general analysis."
@@ -633,10 +644,6 @@ def get_rag_answer(legal_summary, story_summary, user_role='unknown'):
         except Exception as e:
             print(f"[ERROR] Database search failed: {e}")
             context = "Error searching database."
-            sources = []
-        else:
-            print("[WARNING] No results from search")
-            context = "No specific similar cases found. Providing general legal guidance."
             sources = []
 
 
@@ -653,26 +660,44 @@ def get_rag_answer(legal_summary, story_summary, user_role='unknown'):
     # Keep more of the legal summary for better quality
     legal_summary_truncated = legal_summary[:3000] if len(legal_summary) > 3000 else legal_summary
     
-    basic_prompt = f"""Summarize this court case in JSON format.
+    basic_prompt = f"""You are a legal analyst. Analyze this court case and output ONLY valid JSON.
 
 USER ROLE: {role_context}
 
 CASE DETAILS:
 {legal_summary_truncated}
 
-SIMILAR CASES CONTEXT:
-{context[:2000]}
+SIMILAR PRECEDENTS FROM DATABASE:
+{context[:3000]}
 
-Create JSON with 2 fields:
-1. "what_has_happened" - Paragraph (4-6 sentences): what court decided, outcome, what's next. Be specific about dates, parties, and decisions. Frame from the user's perspective.
-2. "key_legal_points" - Paragraph (4-6 sentences): main laws and sections involved. Explain each section briefly and how they apply to the user's position.
+TASK: Create JSON with exactly 2 fields:
 
-Output ONLY valid JSON. Start with {{ and end with }}
+1. "what_has_happened": Write ONE paragraph (4-6 sentences) explaining:
+   - What the court decided
+   - The outcome for the {user_role}
+   - What happens next
+   - Be specific about dates, parties, court names
+   - Reference similar cases if relevant
 
-Example:
-{{"what_has_happened": "The Supreme Court ruled on April 26, 2016. The Court held that prosecution requires prior sanction under Section 197 Cr.P.C. The case cannot proceed without this sanction.", "key_legal_points": "Section 197 Cr.P.C. requires government sanction before prosecuting public servants. Section 304-A IPC deals with causing death by negligence."}}
+2. "key_legal_points": Write ONE paragraph (4-6 sentences) explaining:
+   - Main IPC/CPC sections involved
+   - What each section means in simple terms
+   - How they apply to this case
+   - How similar cases interpreted these sections
+   - Implications for the {user_role}
 
-Generate JSON:
+CRITICAL RULES:
+- Output ONLY the JSON object, nothing else
+- Start with {{ and end with }}
+- Use double quotes for strings
+- Each field must be a single paragraph string (not an array)
+- Reference the similar cases provided above
+- Be specific and factual
+
+EXAMPLE FORMAT:
+{{"what_has_happened": "The Supreme Court ruled on April 26, 2016 in favor of the petitioner. The Court held that prosecution under Section 304-A IPC requires prior sanction under Section 197 Cr.P.C. Similar cases like Ram Kumar vs State (2014) established this principle. The case cannot proceed without government sanction.", "key_legal_points": "Section 197 Cr.P.C. requires government sanction before prosecuting public servants for official acts. Section 304-A IPC deals with causing death by negligence. The Supreme Court in Matajog Dobey (1956) held that Section 197 protection extends to negligent acts in official capacity. This means the prosecution must first obtain sanction from the competent authority."}}
+
+Now generate the JSON for this case:
 """
 
     try:
@@ -730,32 +755,49 @@ Generate JSON:
         case_short = analysis_data.get('what_has_happened', '')[:400]
         laws_short = analysis_data.get('key_legal_points', '')[:400]
         
-        followup_prompt = f"""
-Legal strategist for {user_role}. Create follow-up advice.
+        followup_prompt = f"""You are a legal strategist advising a {user_role}. Create strategic recommendations based on this case and similar precedents.
 
-CASE: {case_short}
+CURRENT CASE SUMMARY:
+{case_short}
 
-LAWS: {laws_short}
+LEGAL ISSUES:
+{laws_short}
 
-SIMILAR CASES: {context_short}
+SIMILAR PRECEDENTS FROM DATABASE:
+{context_short}
 
-Create JSON with "general_follow_ups" - array of 6-8 paragraphs (3-4 sentences). Cover: immediate actions, documents, legal strategy, timeline, evidence, procedures, pitfalls, rights.
+TASK: Create JSON with "general_follow_ups" field containing an array of 6-8 detailed paragraphs.
 
-Output ONLY valid JSON. Start with {{ and end with }}
+Each paragraph should:
+- Start with a clear topic (e.g., "Immediate action:", "Document gathering:", "Legal strategy:")
+- Be 3-5 sentences long
+- Reference specific similar cases from the database above
+- Provide concrete, actionable advice
+- Include timeframes where relevant
+- Focus on strategies that worked in similar cases
 
-Example:
-{{"general_follow_ups": ["Immediate action: Engage specialized lawyer within 7 days. Early consultation improves outcomes significantly.", "Document collection: Gather official records immediately. Documentary evidence is crucial for success."]}}
+TOPICS TO COVER:
+1. Immediate actions needed (with timeline)
+2. Documents to collect (based on what helped in similar cases)
+3. Legal strategy (what worked in similar precedents)
+4. Timeline management (court deadlines, filing requirements)
+5. Evidence preparation (what was crucial in similar cases)
+6. Procedural steps (based on similar case outcomes)
+7. Common pitfalls to avoid (lessons from similar cases)
+8. Rights protection (based on precedents)
 
-Generate JSON:
-
-RULES:
-- Output ONLY valid JSON
-- Each paragraph = 3-5 sentences
-- Focus on actionable strategies, not case names
-- Be specific and practical
+CRITICAL RULES:
+- Output ONLY the JSON object
 - Start with {{ and end with }}
+- "general_follow_ups" must be an array of strings
+- Each string is one complete paragraph
+- Reference specific similar cases by name
+- Be specific and practical, not generic
 
-Generate the JSON:
+EXAMPLE FORMAT:
+{{"general_follow_ups": ["Immediate action: Based on the Supreme Court's ruling in your favor, act within 7 days. In the similar case of Ram Kumar vs State (2014), the petitioner's quick action prevented the prosecution from obtaining retrospective sanction. Engage a lawyer specializing in Section 197 cases immediately. Document all communications with your department.", "Document gathering: Collect all official records from your service period immediately. In Prakash Singh Badal vs State (2007), comprehensive documentation proved crucial. Request: (1) duty rosters for the relevant period, (2) written orders defining your responsibilities, (3) correspondence about vehicle allocation, (4) service records showing your official capacity. Similar cases show that documentary evidence is decisive.", "Legal strategy: The Supreme Court's finding that your act was in official capacity provides strong protection. However, monitor for attempts to obtain sanction retrospectively. In Matajog Dobey (1956), the Court held that Section 197 protection is absolute for official acts. File for permanent closure and seek costs from prosecution. Consider seeking expungement of records from your service file, as done successfully in similar cases."]}}
+
+Now generate the JSON with 6-8 detailed paragraphs referencing the similar cases provided above:
 """
 
         if is_online():
@@ -939,7 +981,7 @@ def analyze_document():
         # 3. Get RAG Analysis (now with two-stage generation)
         print("[STEP 3/3] Generating RAG analysis...")
         sys.stdout.flush()
-        analysis_data, sources = get_rag_answer(legal_summary, story_summary, user_role)
+        analysis_data, sources = get_rag_answer(legal_summary, story_summary, user_role, doc_text)
         
         print("="*60)
         print("--- Job Complete ---")
