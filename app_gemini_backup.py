@@ -11,6 +11,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 import requests
 from llama_cpp import Llama
+import time  # For retry delays
+import sys  # For stdout flushing
 
 # --- 1. INITIALIZATION ---
 
@@ -113,7 +115,7 @@ safety_settings = {
 }
 
 generation_model = genai.GenerativeModel(
-    "gemini-2.0-flash-exp",  # Using latest flash model
+    "gemini-2.5-flash",  # Using latest flash model
     safety_settings=safety_settings
 )
 
@@ -156,7 +158,7 @@ else:
     print("         To use Ollama, run: ollama serve")
 
 # Manual switch for online/offline mode (None = auto-detect)
-FORCE_MODE = 'offline'  # Set to 'online', 'offline', or None for auto
+FORCE_MODE = None  # Set to 'online', 'offline', or None for auto
 # NOTE: Set to 'offline' because Gemini API quota exceeded
 
 # Connectivity check with manual override
@@ -186,6 +188,65 @@ except Exception as e:
     exit()
 
 # --- 2. HELPER FUNCTIONS ---
+
+def call_gemini_with_retry(model, prompt, max_retries=5, initial_wait=60):
+    """
+    Call Gemini API with automatic retry on rate limit errors.
+    Waits and retries when quota is exceeded, ensuring eventual success.
+    
+    Args:
+        model: Gemini model instance
+        prompt: Prompt to send
+        max_retries: Maximum number of retry attempts (default: 5)
+        initial_wait: Initial wait time in seconds (default: 60)
+    
+    Returns:
+        Response from Gemini API
+    """
+    for attempt in range(max_retries):
+        try:
+            response = model.generate_content(prompt)
+            return response  # Success!
+            
+        except Exception as e:
+            error_msg = str(e)
+            
+            # Check if it's a rate limit error
+            if "429" in error_msg or "quota" in error_msg.lower() or "rate limit" in error_msg.lower():
+                # Extract wait time from error message if available
+                wait_time = initial_wait
+                if "retry" in error_msg.lower():
+                    # Try to extract retry delay from error message
+                    import re
+                    match = re.search(r'retry.*?(\d+)', error_msg.lower())
+                    if match:
+                        wait_time = int(match.group(1)) + 5  # Add 5 seconds buffer
+                
+                if attempt < max_retries - 1:  # Not the last attempt
+                    print(f"[RATE LIMIT] Gemini quota exceeded (attempt {attempt + 1}/{max_retries})")
+                    print(f"[WAITING] Waiting {wait_time} seconds for quota to reset...")
+                    sys.stdout.flush()
+                    
+                    # Wait with progress indicator
+                    for remaining in range(wait_time, 0, -10):
+                        print(f"[WAITING] {remaining} seconds remaining...")
+                        sys.stdout.flush()
+                        time.sleep(min(10, remaining))
+                    
+                    print(f"[RETRY] Retrying Gemini API (attempt {attempt + 2}/{max_retries})...")
+                    sys.stdout.flush()
+                    continue  # Retry
+                else:
+                    # Last attempt failed
+                    print(f"[ERROR] Gemini API failed after {max_retries} attempts")
+                    raise e
+            else:
+                # Non-rate-limit error, don't retry
+                print(f"[ERROR] Gemini API error (non-rate-limit): {error_msg[:100]}")
+                raise e
+    
+    # Should never reach here
+    raise Exception("Max retries exceeded")
 
 def extract_text_from_pdf(pdf_path):
     """Extracts all text from an uploaded PDF."""
@@ -307,8 +368,11 @@ def get_summaries_from_text(document_text):
     
     print("Generating summaries...")
     sys.stdout.flush()
+    
+    # Try online mode first if available
+    use_offline = False
     if is_online():
-        print("[ONLINE] MODE: Using Gemini API")
+        print("[ONLINE] MODE: Attempting Gemini API with auto-retry")
         try:
             # Prompt 1: Story Summary
             prompt_story = f"""
@@ -319,7 +383,9 @@ def get_summaries_from_text(document_text):
             DOCUMENT:
             {document_text}
             """
-            story_response = generation_model.generate_content(prompt_story)
+            print("[ONLINE] Generating story summary (will wait if quota exceeded)...")
+            sys.stdout.flush()
+            story_response = call_gemini_with_retry(generation_model, prompt_story)
 
             # Prompt 2: Legal Summary
             prompt_legal = f"""
@@ -331,13 +397,31 @@ def get_summaries_from_text(document_text):
             DOCUMENT:
             {document_text}
             """
-            legal_response = generation_model.generate_content(prompt_legal)
+            print("[ONLINE] Generating legal summary (will wait if quota exceeded)...")
+            sys.stdout.flush()
+            legal_response = call_gemini_with_retry(generation_model, prompt_legal)
 
+            print("[SUCCESS] Gemini API responded successfully")
             return story_response.text, legal_response.text
+            
         except Exception as e:
-            print(f"Error generating summaries: {e}")
-            return "Error: Could not generate story summary.", "Error: Could not generate legal summary."
+            error_msg = str(e)
+            print(f"[ERROR] Gemini API failed: {error_msg[:200]}")
+            
+            # Check if it's a quota/rate limit error
+            if "429" in error_msg or "quota" in error_msg.lower() or "rate limit" in error_msg.lower():
+                print("[AUTO-FALLBACK] Gemini API quota exceeded!")
+                print("[INFO] Automatically switching to offline mode (Ollama/Mistral)...")
+                use_offline = True
+            else:
+                print(f"[ERROR] Gemini API error (non-quota): {error_msg[:100]}")
+                print("[AUTO-FALLBACK] Switching to offline mode due to API error...")
+                use_offline = True
     else:
+        use_offline = True
+    
+    # Offline mode (either by choice or fallback)
+    if use_offline:
         print("[OFFLINE] MODE: Using Ollama/Mistral")
         # Use offline LLM (Ollama or Mistral)
         # Prompt 1: Story Summary - Make it very simple and narrative-like
@@ -702,16 +786,36 @@ Now generate the JSON for this case:
 
     try:
         # STAGE 1: Generate basic analysis
+        basic_raw_text = None
+        use_offline_stage1 = False
+        
         if is_online():
-            basic_response = generation_model.generate_content(basic_prompt)
-            basic_raw_text = basic_response.text
-            # Log if response was blocked
-            if hasattr(basic_response, 'prompt_feedback'):
-                print(f"Prompt feedback: {basic_response.prompt_feedback}")
+            print("[ONLINE] Attempting Gemini API for Stage 1 (with auto-retry)...")
+            sys.stdout.flush()
+            try:
+                basic_response = call_gemini_with_retry(generation_model, basic_prompt)
+                basic_raw_text = basic_response.text
+                print("[SUCCESS] Gemini API responded for Stage 1")
+                # Log if response was blocked
+                if hasattr(basic_response, 'prompt_feedback'):
+                    print(f"Prompt feedback: {basic_response.prompt_feedback}")
+            except Exception as e:
+                error_msg = str(e)
+                print(f"[ERROR] Gemini API failed for Stage 1 after retries: {error_msg[:200]}")
+                if "429" in error_msg or "quota" in error_msg.lower() or "rate limit" in error_msg.lower():
+                    print("[AUTO-FALLBACK] Gemini quota still exceeded after retries, switching to offline for Stage 1...")
+                    use_offline_stage1 = True
+                else:
+                    print("[AUTO-FALLBACK] Gemini error, switching to offline for Stage 1...")
+                    use_offline_stage1 = True
         else:
+            use_offline_stage1 = True
+        
+        if use_offline_stage1 or not basic_raw_text:
+            print("[OFFLINE] Using Ollama/Mistral for Stage 1...")
             basic_raw_text = get_offline_response(basic_prompt, max_tokens=1024)
             if not basic_raw_text:
-                print("Offline model not available.")
+                print("[ERROR] Offline model not available.")
                 return {"error": "Offline model not available."}, []
 
         # Parse Stage 1 response - try multiple extraction methods
@@ -800,17 +904,36 @@ EXAMPLE FORMAT:
 Now generate the JSON with 6-8 detailed paragraphs referencing the similar cases provided above:
 """
 
+        followup_raw_text = None
+        use_offline_stage2 = False
+        
         if is_online():
-            followup_response = generation_model.generate_content(followup_prompt)
-            followup_raw_text = followup_response.text
-            print(f"Stage 2 raw response length: {len(followup_raw_text)} chars")
-            # Log if response was blocked
-            if hasattr(followup_response, 'prompt_feedback'):
-                print(f"Prompt feedback: {followup_response.prompt_feedback}")
+            print("[ONLINE] Attempting Gemini API for Stage 2 (with auto-retry)...")
+            sys.stdout.flush()
+            try:
+                followup_response = call_gemini_with_retry(generation_model, followup_prompt)
+                followup_raw_text = followup_response.text
+                print(f"[SUCCESS] Gemini API responded for Stage 2 ({len(followup_raw_text)} chars)")
+                # Log if response was blocked
+                if hasattr(followup_response, 'prompt_feedback'):
+                    print(f"Prompt feedback: {followup_response.prompt_feedback}")
+            except Exception as e:
+                error_msg = str(e)
+                print(f"[ERROR] Gemini API failed for Stage 2 after retries: {error_msg[:200]}")
+                if "429" in error_msg or "quota" in error_msg.lower() or "rate limit" in error_msg.lower():
+                    print("[AUTO-FALLBACK] Gemini quota still exceeded after retries, switching to offline for Stage 2...")
+                    use_offline_stage2 = True
+                else:
+                    print("[AUTO-FALLBACK] Gemini error, switching to offline for Stage 2...")
+                    use_offline_stage2 = True
         else:
+            use_offline_stage2 = True
+        
+        if use_offline_stage2 or not followup_raw_text:
+            print("[OFFLINE] Using Ollama/Mistral for Stage 2...")
             followup_raw_text = get_offline_response(followup_prompt, max_tokens=2048)
             if not followup_raw_text:
-                print("Could not generate follow-ups")
+                print("[ERROR] Could not generate follow-ups")
                 analysis_data["general_follow_ups"] = ["Unable to generate detailed follow-ups. Please consult a lawyer."]
                 followup_raw_text = None
 
