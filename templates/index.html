@@ -140,6 +140,22 @@
             <div id="results" class="hidden max-w-7xl mx-auto">
                 <h2 class="text-2xl font-semibold text-gray-800 mb-5">Analysis Results</h2>
                 
+                <!-- Legitimacy Check Section -->
+                <div id="legitimacyCheck" class="mb-6 bg-white rounded-xl shadow-lg overflow-hidden border-2 border-green-500">
+                    <div class="bg-green-50 px-5 py-4 border-b border-green-200">
+                        <div class="flex items-center">
+                            <svg class="w-6 h-6 text-green-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            <h3 class="text-lg font-semibold text-green-800">Document Legitimacy Check</h3>
+                        </div>
+                    </div>
+                    <div class="p-5">
+                        <p id="legitimacyMessage" class="text-gray-700 text-base"></p>
+                        <p id="legitimacyConfidence" class="text-sm text-gray-500 mt-2"></p>
+                    </div>
+                </div>
+                
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <div class="result-box bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200">
                         <h2 class="text-xl font-semibold text-brand-dark bg-gray-50 px-5 py-4 border-b border-gray-200">
@@ -396,13 +412,110 @@
 
                 if (!response.ok) {
                     const errorData = await response.json();
+                    // Check if it's a legitimacy check failure
+                    if (errorData.legitimacy_check && !errorData.legitimacy_check.passed) {
+                        // Show legitimacy failure in a professional way
+                        loader.classList.add('hidden');
+                        loader.classList.remove('flex');
+                        alert(`Document Not Accepted\n\n${errorData.legitimacy_check.message}\n\nPlease upload a valid legal or court document.`);
+                        return;
+                    }
                     throw new Error(errorData.error || 'An unknown error occurred.');
                 }
 
                 const data = await response.json();
                 
                 // Debug: Log the received data structure
-                console.log('Received analysis data:', data.analysis);
+                console.log('Received analysis data:', data);
+
+                // --- DISPLAY LEGITIMACY CHECK RESULT ---
+                if (data.legitimacy_check) {
+                    const legitCheck = data.legitimacy_check;
+                    const legitSection = document.getElementById('legitimacyCheck');
+                    const legitMessage = document.getElementById('legitimacyMessage');
+                    const legitConfidence = document.getElementById('legitimacyConfidence');
+                    
+                    if (legitCheck.passed) {
+                        // Document passed legitimacy check
+                        legitSection.className = 'mb-6 bg-white rounded-xl shadow-lg overflow-hidden border-2 border-green-500';
+                        legitSection.querySelector('.bg-green-50').className = 'bg-green-50 px-5 py-4 border-b border-green-200';
+                        legitSection.querySelector('svg').className = 'w-6 h-6 text-green-600 mr-3';
+                        legitSection.querySelector('h3').className = 'text-lg font-semibold text-green-800';
+                        legitSection.querySelector('h3').innerHTML = '<svg class="w-6 h-6 text-green-600 mr-3 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>Document Legitimacy Verified';
+                        legitMessage.textContent = legitCheck.message;
+                        legitConfidence.textContent = `Confidence Level: ${legitCheck.confidence.toUpperCase()}`;
+                        legitConfidence.className = 'text-sm text-green-600 font-medium mt-2';
+                    }
+                }
+
+                // --- CHECK LEGITIMACY FIRST ---
+                if (data.legitimacy_check && !data.legitimacy_check.passed) {
+                    // Document is NOT legitimate - show special message
+                    console.log('[LEGITIMACY] Document rejected:', data.legitimacy_check.message);
+                    
+                    // Update legitimacy section to show failure
+                    const legitSection = document.getElementById('legitimacyCheck');
+                    legitSection.className = 'mb-6 bg-white rounded-xl shadow-lg overflow-hidden border-2 border-red-500';
+                    legitSection.querySelector('.bg-green-50').className = 'bg-red-50 px-5 py-4 border-b border-red-200';
+                    legitSection.querySelector('h3').innerHTML = '<svg class="w-6 h-6 text-red-600 mr-3 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>Document Not Accepted';
+                    legitSection.querySelector('h3').className = 'text-lg font-semibold text-red-800';
+                    document.getElementById('legitimacyMessage').textContent = data.legitimacy_check.message;
+                    document.getElementById('legitimacyConfidence').textContent = `Confidence Level: ${data.legitimacy_check.confidence.toUpperCase()}`;
+                    document.getElementById('legitimacyConfidence').className = 'text-sm text-red-600 font-medium mt-2';
+                    
+                    // Hide normal summaries
+                    document.getElementById('storySummary').textContent = "Document legitimacy check failed.";
+                    document.getElementById('legalSummary').textContent = "This document could not be verified as a legitimate legal court document.";
+                    
+                    // Show legitimacy failure message in analysis section
+                    document.getElementById('analysis_part1').innerHTML = `
+                        <div class="bg-red-50 border-l-4 border-red-500 p-4 mb-4">
+                            <div class="flex items-start">
+                                <div class="flex-shrink-0">
+                                    <svg class="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+                                    </svg>
+                                </div>
+                                <div class="ml-3">
+                                    <h3 class="text-sm font-medium text-red-800">Document Not Legitimate</h3>
+                                    <div class="mt-2 text-sm text-red-700">
+                                        <p><strong>Document Type:</strong> ${data.analysis.document_type || 'Unknown'}</p>
+                                        <p class="mt-1"><strong>Reason:</strong> ${data.analysis.legitimacy_reason || 'This does not appear to be a valid legal court document.'}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <p class="text-gray-700">${data.analysis.what_has_happened || 'This document cannot be analyzed.'}</p>
+                    `;
+                    
+                    // Show recommendations for what to do
+                    document.getElementById('analysis_part2').innerHTML = `
+                        <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4">
+                            <p class="text-sm text-yellow-700"><strong>What to do:</strong> Please upload a valid legal court document such as a court judgment, court order, or legal petition with proper case details.</p>
+                        </div>
+                    `;
+                    
+                    // Show follow-up recommendations
+                    const followUps = data.analysis.general_follow_ups || [];
+                    populateDetailedRecommendations('analysis_part3', followUps);
+                    
+                    // Show disclaimer
+                    document.getElementById('analysis_disclaimer').textContent = 
+                        data.analysis.disclaimer || "This document was rejected during legitimacy verification.";
+                    
+                    // Hide sources and lawyers (not applicable)
+                    document.getElementById('sourceList').innerHTML = '<li class="text-gray-500 italic">No sources available - document legitimacy check failed.</li>';
+                    document.getElementById('recommendedList').innerHTML = '<p class="text-gray-500 italic">No recommendations available - document legitimacy check failed.</p>';
+                    
+                    // Show results section
+                    loader.classList.add('hidden');
+                    loader.classList.remove('flex');
+                    resultsSection.style.display = 'block';
+                    return; // Stop here, don't process further
+                }
+                
+                // Document IS legitimate - proceed with normal display
+                console.log('[LEGITIMACY] Document approved, showing full analysis');
 
                 // --- UPDATED: POPULATE RESULTS FROM JSON ---
                 // Populate simple summaries

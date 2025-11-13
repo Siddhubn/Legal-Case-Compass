@@ -12,3 +12,5 @@ flask
 python-dotenv
 #for downloading llama model
 llama-cpp-python
+#security library
+bleach>=6.0.0
