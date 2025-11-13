@@ -164,16 +164,30 @@
         const analysis = data.analysis || {};
         html += `<div class="mb-3"><h4 class="font-medium">What has happened</h4><div class="mt-1 text-gray-800">${escapeHtml(analysis.what_has_happened || '')}</div></div>`;
 
-        // key_legal_points (may be string or array)
+        // key_legal_points (now a paragraph string)
         html += `<div class="mb-3"><h4 class="font-medium">Key legal points</h4>`;
         const kpoints = analysis.key_legal_points || '';
-        html += renderAsList(kpoints);
+        if (typeof kpoints === 'string') {
+            html += `<div class="text-sm text-gray-700 mt-2">${escapeHtml(kpoints)}</div>`;
+        } else if (Array.isArray(kpoints)) {
+            // Backward compatibility
+            html += renderAsList(kpoints);
+        } else {
+            html += `<div class="text-sm text-gray-500 italic mt-1">No legal points available.</div>`;
+        }
         html += `</div>`;
 
-        // general_follow_ups
-        html += `<div class="mb-3"><h4 class="font-medium">General follow-ups</h4>`;
-        const followups = analysis.general_follow_ups || '';
-        html += renderAsList(followups);
+        // strategic_recommendations (detailed paragraphs)
+        html += `<div class="mb-3"><h4 class="font-medium">Strategic recommendations based on similar cases</h4>`;
+        html += `<p class="text-xs text-gray-600 italic mb-2">These recommendations are derived from analyzing similar successful cases.</p>`;
+        const strategic = analysis.strategic_recommendations || '';
+        html += renderAsDetailedParagraphs(strategic);
+        html += `</div>`;
+
+        // immediate_action_items
+        html += `<div class="mb-3"><h4 class="font-medium">Immediate action items</h4>`;
+        const actions = analysis.immediate_action_items || '';
+        html += renderAsList(actions);
         html += `</div>`;
 
         // Disclaimer
@@ -231,12 +245,51 @@
       // Accepts array or newline-separated string and returns HTML UL
       if (!mixed) return '<div class="text-sm text-gray-500 italic mt-1">No items.</div>';
       let items = [];
-      if (Array.isArray(mixed)) items = mixed.filter(Boolean);
-      else if (typeof mixed === 'string') items = mixed.split('\n').map(s => s.trim()).filter(Boolean);
+      if (Array.isArray(mixed)) {
+        items = mixed.map(item => {
+          // Handle objects by converting to JSON string
+          if (typeof item === 'object' && item !== null) {
+            return JSON.stringify(item);
+          }
+          return String(item || '');
+        }).filter(Boolean);
+      } else if (typeof mixed === 'string') {
+        items = mixed.split('\n').map(s => s.trim()).filter(Boolean);
+      } else if (typeof mixed === 'object' && mixed !== null) {
+        items = [JSON.stringify(mixed)];
+      }
       if (items.length === 0) return '<div class="text-sm text-gray-500 italic mt-1">No items.</div>';
       let out = '<ul class="list-disc list-inside text-sm text-gray-700 mt-2">';
-      items.forEach(it => { out += `<li>${escapeHtml(it.replace(/^[-*\s]+/, ''))}</li>`; });
+      items.forEach(it => { out += `<li>${escapeHtml(String(it).replace(/^[-*\s]+/, ''))}</li>`; });
       out += '</ul>';
+      return out;
+    }
+
+    function renderAsDetailedParagraphs(mixed) {
+      // Accepts array or string and returns numbered detailed paragraphs
+      if (!mixed) return '<div class="text-sm text-gray-500 italic mt-1">No recommendations.</div>';
+      let items = [];
+      if (Array.isArray(mixed)) {
+        items = mixed.map(item => {
+          if (typeof item === 'object' && item !== null) {
+            return JSON.stringify(item);
+          }
+          return String(item || '');
+        }).filter(Boolean);
+      } else if (typeof mixed === 'string') {
+        items = mixed.split(/\n\n+|\d+\.\s+/).map(s => s.trim()).filter(Boolean);
+      } else if (typeof mixed === 'object' && mixed !== null) {
+        items = [JSON.stringify(mixed)];
+      }
+      if (items.length === 0) return '<div class="text-sm text-gray-500 italic mt-1">No recommendations.</div>';
+      let out = '<div class="space-y-3 mt-2">';
+      items.forEach((it, idx) => {
+        out += `<div class="bg-blue-50 border-l-4 border-blue-500 p-3 rounded-r text-sm">
+                  <span class="font-bold text-blue-700">${idx + 1}. </span>
+                  <span class="text-gray-800">${escapeHtml(String(it).replace(/^[-*\s]+/, ''))}</span>
+                </div>`;
+      });
+      out += '</div>';
       return out;
     }
 

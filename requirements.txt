@@ -10,3 +10,7 @@ google-generativeai
 flask
 #for loading the environment variables
 python-dotenv
+#for downloading llama model
+llama-cpp-python
+#security library
+bleach>=6.0.0

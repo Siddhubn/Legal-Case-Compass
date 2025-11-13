@@ -9,8 +9,14 @@ import re
 import sqlite3
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
+import requests
+from llama_cpp import Llama
 
 # --- 1. INITIALIZATION ---
+
+# Version marker for debugging
+APP_VERSION = "2.0-TwoStage"
+print(f"=== Legal Case Compass {APP_VERSION} ===")
 
 # Load API Key from .env file
 load_dotenv()
@@ -95,22 +101,99 @@ def init_user_db():
 # Initialize user DB
 init_user_db()
 
-# Setup Gemini Models
 embedding_model = "models/text-embedding-004"
-generation_model = genai.GenerativeModel("gemini-2.5-flash") # Using 1.5 Pro
+
+# Configure generation model with safety settings to prevent blocking
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
+safety_settings = {
+    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+}
+
+generation_model = genai.GenerativeModel(
+    "gemini-2.5-flash",  # Using latest flash model
+    safety_settings=safety_settings
+)
+
+# Setup Mistral-7B-Instruct model for offline use (as fallback)
+MISTRAL_MODEL_PATH = os.path.join(os.path.dirname(__file__), "offline-access", "mistral-7b-instruct-v0.2.Q4_K_M.gguf")
+llm_offline = None
+if os.path.exists(MISTRAL_MODEL_PATH):
+    try:
+        llm_offline = Llama(
+            model_path=MISTRAL_MODEL_PATH,
+            n_gpu_layers=28,  # Increase for more GPU utilization (max 32 for Mistral)
+            n_ctx=4096,
+            verbose=False
+        )
+        print("[OK] Loaded Mistral-7B-Instruct model for offline use (fallback).")
+    except Exception as e:
+        print(f"[ERROR] Error loading Mistral model: {e}")
+else:
+    print(f"[WARNING] Offline model not found at {MISTRAL_MODEL_PATH}")
+
+# Ollama Configuration (Primary offline option)
+OLLAMA_API_URL = "http://localhost:11434/api/generate"
+OLLAMA_MODEL = "mistral"  # Change to "neural-chat" or other models as needed
+ollama_available = False
+
+def check_ollama_availability():
+    """Check if Ollama is running and accessible."""
+    try:
+        response = requests.get("http://localhost:11434/api/tags", timeout=2)
+        return response.status_code == 200
+    except Exception:
+        return False
+
+# Check Ollama on startup
+if check_ollama_availability():
+    print("[OK] Ollama is available at localhost:11434")
+    ollama_available = True
+else:
+    print("[WARNING] Ollama is not running. Will use Mistral model as fallback.")
+    print("         To use Ollama, run: ollama serve")
+
+# Manual switch for online/offline mode (None = auto-detect)
+FORCE_MODE = 'online'  # Set to 'online', 'offline', or None for auto
+# NOTE: Set to 'offline' because Gemini API quota exceeded
+
+# Connectivity check with manual override
+def is_online():
+    if FORCE_MODE == 'online':
+        return True
+    if FORCE_MODE == 'offline':
+        return False
+    try:
+        requests.get("https://www.google.com", timeout=3)
+        return True
+    except Exception:
+        return False
 
 # Setup Vector Database Connection
-DB_PATH = os.path.join(BASE_DIR, "legal_db")
+# Using UNIVERSAL database (compatible with both online and offline modes)
+DB_PATH = os.path.join(BASE_DIR, "legal_db_universal")
+COLLECTION_NAME = "legal_brain_universal"
 
-print("Connecting to Vector DB...")
+# Backup: Old Gemini-based database (preserved for reference)
+# DB_PATH_OLD = os.path.join(BASE_DIR, "legal_db")
+# COLLECTION_NAME_OLD = "legal_brain"
+
+print("Connecting to Universal Vector DB...")
+print(f"[INFO] Database: {DB_PATH}")
+print(f"[INFO] Collection: {COLLECTION_NAME}")
 try:
     db_client = chromadb.PersistentClient(path=DB_PATH)
-    collection = db_client.get_collection("legal_brain")
-    print("✅ Connected to Vector DB.")
+    collection = db_client.get_collection(COLLECTION_NAME)
+    print(f"[OK] Connected to Universal Vector DB.")
+    print(f"[INFO] Database contains {collection.count()} chunks")
 except Exception as e:
-    print(f"FATAL ERROR: Could not connect to ChromaDB at {DB_PATH}")
-    print("Have you run the 'build_database.py' script first?")
+    print(f"[FATAL ERROR] Could not connect to ChromaDB at {DB_PATH}")
+    print("Have you run the 'build_database_universal.py' script first?")
     print(f"Error: {e}")
+    print("\nTo build the universal database, run:")
+    print("  python build_database_universal.py")
     exit()
 
 # --- 2. HELPER FUNCTIONS ---
@@ -140,138 +223,610 @@ def get_gemini_embedding(text):
         print(f"Error getting embedding: {e}")
         return None
 
+def query_ollama(prompt, max_tokens=512):
+    """Query Ollama API for text generation."""
+    try:
+        # Adjust timeout based on max_tokens
+        timeout = 180 if max_tokens > 1500 else 120
+        print(f"[DEBUG] Sending request to Ollama (timeout={timeout}s, max_tokens={max_tokens})...")
+        response = requests.post(
+            OLLAMA_API_URL,
+            json={
+                "model": OLLAMA_MODEL,
+                "prompt": prompt,
+                "stream": False,
+                "num_predict": max_tokens,
+                "options": {
+                    "temperature": 0.7,
+                    "top_p": 0.9,
+                    "num_thread": 8  # Use more CPU threads
+                }
+            },
+            timeout=timeout
+        )
+        if response.status_code == 200:
+            result = response.json().get("response", "")
+            print(f"[OK] Ollama responded with {len(result)} chars")
+            return result
+        else:
+            print(f"[ERROR] Ollama API error: {response.status_code}")
+            print(f"[ERROR] Response: {response.text[:200]}")
+            return None
+    except requests.exceptions.Timeout:
+        print(f"[ERROR] Ollama request timed out after 60 seconds")
+        return None
+    except Exception as e:
+        print(f"[ERROR] Error querying Ollama: {e}")
+        return None
+
+def get_offline_response(prompt, max_tokens=512):
+    """
+    Get response from offline LLM.
+    Tries Ollama first (GPU-accelerated), falls back to Mistral.
+    """
+    print(f"[DEBUG] Getting offline response (max_tokens={max_tokens})...")
+    
+    # Try Ollama first (preferred, GPU-accelerated) - check dynamically
+    if check_ollama_availability():
+        print("Using Ollama for offline inference...")
+        try:
+            response = query_ollama(prompt, max_tokens)
+            if response:
+                print(f"[OK] Ollama returned {len(response)} chars")
+                return response
+            else:
+                print("[WARNING] Ollama returned empty response, falling back to Mistral...")
+        except Exception as e:
+            print(f"[ERROR] Ollama failed: {e}")
+            print("Falling back to Mistral...")
+    
+    # Fallback to Mistral model
+    if llm_offline:
+        print("Using Mistral model for offline inference...")
+        try:
+            print("[DEBUG] Calling Mistral model...")
+            response = llm_offline(prompt, max_tokens=max_tokens)
+            result = response["choices"][0]["text"] if "choices" in response else response.get("text", "")
+            print(f"[OK] Mistral returned {len(result)} chars")
+            return result
+        except Exception as e:
+            print(f"[ERROR] Mistral model failed: {e}")
+            return None
+    
+    print("[ERROR] No offline model available")
+    return None
+
 # --- 3. CORE APPLICATION LOGIC (THE "PIPELINE") ---
 
 def get_summaries_from_text(document_text):
     """
-    Uses Gemini to generate the two summaries.
-    This is Part A of our plan.
+    Uses Gemini if online, otherwise Ollama (or Mistral fallback) for summaries.
     """
-    print("Generating summaries...")
-    try:
-        # Prompt 1: Story Summary
-        prompt_story = f"""
-        Read the following court document. Explain what happened in the case 
-        in 1-2 paragraphs, using simple, non-legal language. 
-        Describe the events like a straightforward narrative or story.
-
-        DOCUMENT:
-        {document_text}
-        """
-        story_response = generation_model.generate_content(prompt_story)
-        
-        # Prompt 2: Legal Summary
-        prompt_legal = f"""
-        Act as an expert legal analyst. Read the following court document and
-        extract all key legal information. List all cited IPC/CPC sections,
-        key dates, and a summary of the most recent actions or judgments.
-        Be concise and formal. Output in one single paragraph.
-
-        DOCUMENT:
-        {document_text}
-        """
-        legal_response = generation_model.generate_content(prompt_legal)
-        
-        return story_response.text, legal_response.text
-        
-    except Exception as e:
-        print(f"Error generating summaries: {e}")
-        return "Error: Could not generate story summary.", "Error: Could not generate legal summary."
-
-
-def get_rag_answer(legal_summary):
-    """
-    Uses the legal summary to search the DB and generate the final answer
-    in a structured JSON format.
-    """
-    print("Generating RAG answer...")
-    
-    # --- 3.A: Embed the User's Query ---
-    query_vector = get_gemini_embedding(legal_summary)
-    if not query_vector:
-        return {"error": "Could not create an embedding for your document."}, []
-
-    # --- 3.B: Search the Vector Database ---
-    print("Searching database for relevant cases...")
-    try:
-        search_results = collection.query(
-            query_embeddings=[query_vector],
-            n_results=5,  # Get the top 5 most similar chunks
-            include=["documents", "metadatas"] # ASK FOR METADATA
+    # Smart truncation: keep beginning and end, skip middle if too long
+    max_chars = 20000  # ~4000 tokens (increased for better quality)
+    if len(document_text) > max_chars:
+        print(f"[INFO] Document is {len(document_text)} chars, using smart truncation...")
+        # Keep first 60% and last 40% for context
+        keep_start = int(max_chars * 0.6)
+        keep_end = int(max_chars * 0.4)
+        document_text = (
+            document_text[:keep_start] + 
+            "\n\n[... middle section omitted ...]\n\n" + 
+            document_text[-keep_end:]
         )
-    except Exception as e:
-        print(f"Error querying database: {e}")
-        return {"error": f"Error querying database: {e}"}, []
-
-    context = "\n---\n".join(search_results['documents'][0])
-    metadatas = search_results['metadatas'][0]
-    sources = list(dict.fromkeys([meta['source'] for meta in metadatas]))
-
-    # --- 3.C: Generate the Final Answer (as JSON) ---
-    print("Generating final answer with RAG...")
+        print(f"[INFO] Truncated to {len(document_text)} chars (kept beginning and end)")
     
-    # SLIGHTLY UPDATED PROMPT
-    final_prompt = f"""
-    You are a helpful legal AI assistant. You cannot give legal advice.
-    Your goal is to provide information and general options based on the
-    user's document and relevant legal context.
+    print("Generating summaries...")
+    sys.stdout.flush()
+    if is_online():
+        print("[ONLINE] MODE: Using Gemini API")
+        try:
+            # Prompt 1: Story Summary
+            prompt_story = f"""
+            Read the following court document. Explain what happened in the case 
+            in 1-2 paragraphs, using simple, non-legal language. 
+            Describe the events like a straightforward narrative or story.
 
-    **User's Case Summary:**
-    {legal_summary}
+            DOCUMENT:
+            {document_text}
+            """
+            story_response = generation_model.generate_content(prompt_story)
 
-    **Relevant Legal Information (from past cases, IPC, CPC, Constitution):**
-    {context}
+            # Prompt 2: Legal Summary
+            prompt_legal = f"""
+            Act as an expert legal analyst. Read the following court document and
+            extract all key legal information. List all cited IPC/CPC sections,
+            key dates, and a summary of the most recent actions or judgments.
+            Be concise and formal. Output in one single paragraph.
 
-    **Your Task:**
-    Based *only* on the User's Case Summary and the Relevant Legal Information
-    provided above, generate a JSON object with three specific keys:
-    1. "what_has_happened": A simple, plain-text explanation of the case status.
-    2. "key_legal_points": A plain-text, bulleted list (using '*' or '-') of the main legal sections or principles.
-    3. "general_follow_ups": A plain-text, bulleted list (using '*' or '-') of general, safe next steps.
-    
-    **CRITICAL:** ONLY output the raw JSON object. Your entire response must
-    start with {{ and end with }}. Do not add *any* text before or after.
+            DOCUMENT:
+            {document_text}
+            """
+            legal_response = generation_model.generate_content(prompt_legal)
+
+            return story_response.text, legal_response.text
+        except Exception as e:
+            print(f"Error generating summaries: {e}")
+            return "Error: Could not generate story summary.", "Error: Could not generate legal summary."
+    else:
+        print("[OFFLINE] MODE: Using Ollama/Mistral")
+        # Use offline LLM (Ollama or Mistral)
+        # Prompt 1: Story Summary - Make it very simple and narrative-like
+        prompt_story = f"""
+You are a storyteller explaining a court case to someone with no legal background.
+
+Read this court document carefully and explain what happened in simple, everyday language.
+Write 2-3 paragraphs that tell the story of what happened, who was involved, what they wanted, and what the court decided.
+
+Use very simple words. Avoid legal jargon. If you must use a legal term, explain it in parentheses.
+Write as if you're explaining to a friend or family member.
+
+DOCUMENT:
+{document_text}
+
+Now tell the story in simple terms:
+"""
+        story_text = get_offline_response(prompt_story, max_tokens=600)
+        if not story_text:
+            story_text = "Error: Offline model not available or failed to generate response."
+
+        # Prompt 2: Legal Summary - Focus on key facts and timelines
+        prompt_legal = f"""
+You are a legal analyst. Read this court case and provide a formal legal summary.
+
+Include:
+1. Who is involved (plaintiff/appellant vs defendant/respondent)
+2. What laws were used (mention specific sections like Section 4, Section 6, etc.)
+3. Important dates and timeline
+4. What the courts decided at each level (High Court, Supreme Court, etc.)
+5. The final ruling and what it means
+
+Write as one detailed paragraph. Be specific about law sections and dates.
+
+DOCUMENT:
+{document_text}
+
+Legal summary:
+"""
+        legal_text = get_offline_response(prompt_legal, max_tokens=600)
+        if not legal_text:
+            legal_text = "Error: Offline model not available or failed to generate response."
+
+        return story_text.strip(), legal_text.strip()
+
+
+def get_rag_answer(legal_summary, story_summary, user_role='unknown'):
     """
+    Uses Gemini if online, otherwise Ollama (or Mistral fallback) for RAG.
+    Now generates analysis in two stages for better quality.
+    Takes legal_summary, story_summary, and user_role as parameters.
+    """
+    print(f"Generating RAG answer with two-stage generation (role: {user_role})...")
+    sys.stdout.flush()
+    
+    # Determine perspective based on role
+    role_context = ""
+    if user_role == 'plaintiff':
+        role_context = "The user is the PLAINTIFF/PETITIONER/APPELLANT. Focus on strategies and arguments that favor the plaintiff's position. Highlight precedents where plaintiffs succeeded."
+    elif user_role == 'defendant':
+        role_context = "The user is the DEFENDANT/RESPONDENT. Focus on defense strategies and arguments that favor the defendant's position. Highlight precedents where defendants succeeded."
+    else:
+        role_context = "Provide balanced analysis for both sides."
+    
+    print(f"[INFO] Analysis perspective: {role_context[:80]}...")
+    sys.stdout.flush()
+
+    # --- 3.A: Create Deterministic Search Query ---
+    print("Creating deterministic search query for consistent results...")
+    sys.stdout.flush()
+    
+    # Create a hash of the FULL legal summary for true consistency
+    import hashlib
+    content_hash = hashlib.md5(legal_summary.encode()).hexdigest()
+    print(f"[DEBUG] Document content hash: {content_hash[:12]}")
+    
+    # Create DETERMINISTIC search query (not using embeddings for consistency)
+    # Extract key elements that define the case plot
+    sections = sorted(set(re.findall(r'Section \d+[A-Z]*', legal_summary)))[:5]
+    codes = sorted(set(re.findall(r'IPC|CPC|Cr\.P\.C\.|Navy Act|Army Act|Constitution', legal_summary)))[:3]
+    
+    # Extract plot elements (actions and outcomes)
+    actions = sorted(set(re.findall(
+        r'convicted|acquitted|dismissed|allowed|granted|denied|quashed|upheld|reversed|remanded|discharged',
+        legal_summary, re.IGNORECASE
+    )))[:3]
+    
+    subjects = sorted(set(re.findall(
+        r'murder|robbery|theft|fraud|negligence|assault|corruption|sanction|bail|custody|appeal|prosecution',
+        legal_summary, re.IGNORECASE
+    )))[:3]
+    
+    # Build DETERMINISTIC query (same input = same query = same results)
+    query_parts = []
+    if sections:
+        query_parts.extend(sections)
+    if codes:
+        query_parts.extend(codes)
+    if subjects:
+        query_parts.extend([s.lower() for s in subjects])
+    if actions:
+        query_parts.extend([a.lower() for a in actions])
+    
+    # Create deterministic query string
+    deterministic_query = ' '.join(query_parts) if query_parts else legal_summary[:500]
+    
+    # Create query hash for caching
+    query_hash = hashlib.md5(deterministic_query.encode()).hexdigest()[:12]
+    
+    print(f"[DEBUG] Query hash: {query_hash} (SAME hash = SAME sources)")
+    print(f"[DEBUG] Query: {deterministic_query[:100]}...")
+    sys.stdout.flush()
+    
+    # Note: Not using embeddings for consistency - text search is more deterministic
+    print("[INFO] Using text-based search for 100% consistency")
+    sys.stdout.flush()
+
+    # --- 3.B: Check Cache First (for 100% consistency) ---
+    cache_file = os.path.join(BASE_DIR, "search_cache.json")
+    cached_sources = None
     
     try:
-        final_response = generation_model.generate_content(final_prompt)
+        if os.path.exists(cache_file):
+            with open(cache_file, 'r') as f:
+                cache = json.load(f)
+                if query_hash in cache:
+                    cached_sources = cache[query_hash]
+                    print(f"[CACHE HIT] Found cached sources for query hash: {query_hash}")
+                    print(f"[INFO] Using cached sources (ensures 100% consistency)")
+                    sys.stdout.flush()
+    except Exception as e:
+        print(f"[WARNING] Could not read cache: {e}")
+    
+    # --- 3.C: Search the Vector Database (Deterministic Text Search) ---
+    if cached_sources:
+        # Use cached sources
+        sources = cached_sources
+        print(f"[OK] Loaded {len(sources)} sources from cache")
         
-        # --- NEW, MORE ROBUST JSON PARSING ---
-        raw_text = final_response.text
+        # Get documents for these sources
+        try:
+            # Query by source filenames
+            all_docs = []
+            for src in sources:
+                results = collection.get(
+                    where={"source": src},
+                    limit=1
+                )
+                if results['documents']:
+                    all_docs.append(results['documents'][0])
+            
+            if all_docs:
+                context = "\n---\n".join([doc[:1500] for doc in all_docs])
+            else:
+                context = "Cached sources not found in database."
+        except Exception as e:
+            print(f"[WARNING] Could not retrieve cached documents: {e}")
+            context = "Error retrieving cached documents."
+    else:
+        # Perform search
+        print("Searching database for cases with similar plot and legal concepts...")
+        sys.stdout.flush()
         
-        # Use regex to find the JSON block, even if the AI adds text
-        match = re.search(r'\{.*\}', raw_text, re.DOTALL)
+        try:
+            print("[INFO] Using universal semantic search (ChromaDB built-in embeddings)...")
+            sys.stdout.flush()
+            
+            # Universal database uses ChromaDB's built-in embeddings
+            # No need to create embeddings manually - ChromaDB handles it!
+            try:
+                print("[DEBUG] Searching with query text (ChromaDB auto-embeds)...")
+                sys.stdout.flush()
+                
+                # ChromaDB's query() method with query_texts automatically:
+                # 1. Creates embeddings using the same model as the database
+                # 2. Performs similarity search
+                # 3. Returns results - all in one call!
+                search_results = collection.query(
+                    query_texts=[deterministic_query],  # Pass text directly!
+                    n_results=20,
+                    include=["documents", "metadatas", "distances"]
+                )
+                
+                print("[OK] Search completed successfully")
+                sys.stdout.flush()
+                    
+            except Exception as embed_error:
+                print(f"[ERROR] Search failed: {embed_error}")
+                print("[INFO] Falling back to general analysis")
+                sys.stdout.flush()
+                
+                # Set empty results and continue with analysis
+                context = "Unable to search database. Providing general analysis based on the case details."
+                sources = []
+                search_results = {'documents': [[]], 'metadatas': [[]], 'distances': [[]]}
+        
+            if search_results['documents'][0]:
+                documents = search_results['documents'][0]
+                metadatas = search_results['metadatas'][0]
+                distances = search_results.get('distances', [[]])[0] if 'distances' in search_results else [0] * len(documents)
+                
+                print(f"[INFO] Analyzing {len(documents)} potential matches...")
+                sys.stdout.flush()
+                
+                # Filter by similarity - STRICT threshold for quality
+                # Only keep top 5-7 most similar cases
+                relevant_docs = []
+                relevant_sources = []
+                seen = set()
+                
+                # Sort by distance (lower = more similar)
+                sorted_results = sorted(zip(documents, metadatas, distances), key=lambda x: x[2])
+                
+                for doc, meta, dist in sorted_results:
+                    src = meta['source']
+                    
+                    # Stop after 7 sources OR if similarity drops too much
+                    if len(relevant_sources) >= 7:
+                        break
+                    
+                    # Only include if:
+                    # 1. Similar enough (distance < 1.1 for quality)
+                    # 2. Not duplicate
+                    # 3. Has meaningful content
+                    if dist < 1.1 and src not in seen and len(doc.strip()) > 100:
+                        # Categorize similarity
+                        if dist < 0.6:
+                            similarity = "EXCELLENT"
+                        elif dist < 0.85:
+                            similarity = "GOOD"
+                        else:
+                            similarity = "ACCEPTABLE"
+                        
+                        relevant_docs.append(doc[:1500] + "..." if len(doc) > 1500 else doc)
+                        relevant_sources.append(src)
+                        seen.add(src)
+                        
+                        filename = os.path.basename(src)
+                        print(f"[{similarity}] {filename} (similarity: {1-dist:.1%}, distance: {dist:.3f})")
+                        sys.stdout.flush()
+                
+                if relevant_docs:
+                    context = "\n---\n".join(relevant_docs)
+                    sources = relevant_sources
+                    
+                    # Cache the sources for future consistency
+                    try:
+                        cache = {}
+                        if os.path.exists(cache_file):
+                            with open(cache_file, 'r') as f:
+                                cache = json.load(f)
+                        
+                        cache[query_hash] = sources
+                        
+                        with open(cache_file, 'w') as f:
+                            json.dump(cache, f, indent=2)
+                        
+                        print(f"[CACHE] Saved {len(sources)} sources for query hash: {query_hash}")
+                    except Exception as e:
+                        print(f"[WARNING] Could not save cache: {e}")
+                    
+                    # Limit context length
+                    max_context_length = 12000
+                    if len(context) > max_context_length:
+                        chars_per_doc = max_context_length // len(relevant_docs)
+                        relevant_docs = [doc[:chars_per_doc] for doc in relevant_docs]
+                        context = "\n---\n".join(relevant_docs)
+                    
+                    print(f"\n[SUCCESS] Found {len(sources)} similar cases (max 7 for quality)")
+                    print(f"[INFO] Query hash: {query_hash} (cached for consistency)")
+                    print(f"[INFO] Sources: {[os.path.basename(s) for s in sources]}")
+                else:
+                    print(f"[WARNING] No sufficiently similar cases found")
+                    context = "No highly similar cases found. Providing analysis based on general legal principles."
+                    sources = []
+                
+                sys.stdout.flush()
+        except TimeoutError:
+            print(f"[ERROR] Database search timed out")
+            context = "Database timeout. Providing general analysis."
+            sources = []
+        except Exception as e:
+            print(f"[ERROR] Database search failed: {e}")
+            context = "Error searching database."
+            sources = []
+        else:
+            print("[WARNING] No results from search")
+            context = "No specific similar cases found. Providing general legal guidance."
+            sources = []
+
+
+    # --- 3.C: Generate the Final Answer (as JSON) - STAGE 1: Basic Analysis ---
+    print("Generating basic analysis with RAG...")
+    
+    # Log which mode will be used for RAG answer
+    if is_online():
+        print("[ONLINE] Using Gemini API for RAG analysis")
+    else:
+        print("[OFFLINE] Using Ollama/Mistral for RAG analysis")
+
+    # STAGE 1: Generate basic analysis (what happened + key points)
+    # Keep more of the legal summary for better quality
+    legal_summary_truncated = legal_summary[:3000] if len(legal_summary) > 3000 else legal_summary
+    
+    basic_prompt = f"""Summarize this court case in JSON format.
+
+USER ROLE: {role_context}
+
+CASE DETAILS:
+{legal_summary_truncated}
+
+SIMILAR CASES CONTEXT:
+{context[:2000]}
+
+Create JSON with 2 fields:
+1. "what_has_happened" - Paragraph (4-6 sentences): what court decided, outcome, what's next. Be specific about dates, parties, and decisions. Frame from the user's perspective.
+2. "key_legal_points" - Paragraph (4-6 sentences): main laws and sections involved. Explain each section briefly and how they apply to the user's position.
+
+Output ONLY valid JSON. Start with {{ and end with }}
+
+Example:
+{{"what_has_happened": "The Supreme Court ruled on April 26, 2016. The Court held that prosecution requires prior sanction under Section 197 Cr.P.C. The case cannot proceed without this sanction.", "key_legal_points": "Section 197 Cr.P.C. requires government sanction before prosecuting public servants. Section 304-A IPC deals with causing death by negligence."}}
+
+Generate JSON:
+"""
+
+    try:
+        # STAGE 1: Generate basic analysis
+        if is_online():
+            basic_response = generation_model.generate_content(basic_prompt)
+            basic_raw_text = basic_response.text
+            # Log if response was blocked
+            if hasattr(basic_response, 'prompt_feedback'):
+                print(f"Prompt feedback: {basic_response.prompt_feedback}")
+        else:
+            basic_raw_text = get_offline_response(basic_prompt, max_tokens=1024)
+            if not basic_raw_text:
+                print("Offline model not available.")
+                return {"error": "Offline model not available."}, []
+
+        # Parse Stage 1 response - try multiple extraction methods
+        print(f"Stage 1 raw response length: {len(basic_raw_text)} chars")
+        
+        # Method 1: Look for JSON between curly braces
+        match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', basic_raw_text, re.DOTALL)
+        if not match:
+            # Method 2: Try to find JSON with nested structures
+            match = re.search(r'\{.*\}', basic_raw_text, re.DOTALL)
         
         if not match:
-            print(f"JSON DECODE ERROR: No JSON object found in response.")
-            print(f"Raw response was: {raw_text}")
-            raise json.JSONDecodeError("No JSON object found in AI response.", raw_text, 0)
+            print(f"STAGE 1 JSON ERROR: No JSON found")
+            print(f"Raw response (first 1000 chars): {basic_raw_text[:1000]}")
+            # Try to create a basic response from the text
+            analysis_data = {
+                "what_has_happened": basic_raw_text[:500] if basic_raw_text else "Unable to parse response.",
+                "key_legal_points": ["Unable to extract legal points from AI response."]
+            }
+        else:
+            try:
+                json_str = match.group(0)
+                # Clean up common JSON issues
+                json_str = json_str.replace('\n', ' ').replace('\r', '')
+                analysis_data = json.loads(json_str)
+                print("[OK] Stage 1 complete: what_has_happened + key_legal_points")
+            except json.JSONDecodeError as je:
+                print(f"STAGE 1 JSON PARSE ERROR: {je}")
+                print(f"Attempted to parse: {json_str[:500]}")
+                # Fallback
+                analysis_data = {
+                    "what_has_happened": "The AI response could not be parsed properly. Please try again.",
+                    "key_legal_points": "JSON parsing failed. Please retry the analysis."
+                }
 
-        clean_json_string = match.group(0)
-        analysis_data = json.loads(clean_json_string)
-        # --- END OF NEW PARSING ---
+        # STAGE 2: Generate detailed follow-ups based on Stage 1 + similar cases
+        print("Generating detailed follow-ups based on similar cases...")
         
-        # Add the disclaimer to the data
+        # Truncate to avoid timeout
+        context_short = context[:3000] if len(context) > 3000 else context
+        case_short = analysis_data.get('what_has_happened', '')[:400]
+        laws_short = analysis_data.get('key_legal_points', '')[:400]
+        
+        followup_prompt = f"""
+Legal strategist for {user_role}. Create follow-up advice.
+
+CASE: {case_short}
+
+LAWS: {laws_short}
+
+SIMILAR CASES: {context_short}
+
+Create JSON with "general_follow_ups" - array of 6-8 paragraphs (3-4 sentences). Cover: immediate actions, documents, legal strategy, timeline, evidence, procedures, pitfalls, rights.
+
+Output ONLY valid JSON. Start with {{ and end with }}
+
+Example:
+{{"general_follow_ups": ["Immediate action: Engage specialized lawyer within 7 days. Early consultation improves outcomes significantly.", "Document collection: Gather official records immediately. Documentary evidence is crucial for success."]}}
+
+Generate JSON:
+
+RULES:
+- Output ONLY valid JSON
+- Each paragraph = 3-5 sentences
+- Focus on actionable strategies, not case names
+- Be specific and practical
+- Start with {{ and end with }}
+
+Generate the JSON:
+"""
+
+        if is_online():
+            followup_response = generation_model.generate_content(followup_prompt)
+            followup_raw_text = followup_response.text
+            print(f"Stage 2 raw response length: {len(followup_raw_text)} chars")
+            # Log if response was blocked
+            if hasattr(followup_response, 'prompt_feedback'):
+                print(f"Prompt feedback: {followup_response.prompt_feedback}")
+        else:
+            followup_raw_text = get_offline_response(followup_prompt, max_tokens=2048)
+            if not followup_raw_text:
+                print("Could not generate follow-ups")
+                analysis_data["general_follow_ups"] = ["Unable to generate detailed follow-ups. Please consult a lawyer."]
+                followup_raw_text = None
+
+        # Parse Stage 2 response (both online and offline)
+        if followup_raw_text:
+            # Try multiple extraction methods
+            match2 = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', followup_raw_text, re.DOTALL)
+            if not match2:
+                match2 = re.search(r'\{.*\}', followup_raw_text, re.DOTALL)
+            
+            if match2:
+                try:
+                    json_str2 = match2.group(0)
+                    json_str2 = json_str2.replace('\n', ' ').replace('\r', '')
+                    followup_data = json.loads(json_str2)
+                    analysis_data["general_follow_ups"] = followup_data.get("general_follow_ups", [])
+                    
+                    if analysis_data["general_follow_ups"]:
+                        print(f"[OK] Stage 2 complete: {len(analysis_data['general_follow_ups'])} follow-up items generated")
+                    else:
+                        print("[WARNING] Stage 2: Empty follow-ups array")
+                        analysis_data["general_follow_ups"] = ["No specific follow-ups were generated. Please consult a qualified lawyer."]
+                except json.JSONDecodeError as je2:
+                    print(f"STAGE 2 JSON PARSE ERROR: {je2}")
+                    print(f"Attempted to parse: {json_str2[:500]}")
+                    analysis_data["general_follow_ups"] = ["Unable to parse follow-ups. Please try uploading the document again."]
+            else:
+                print("STAGE 2 JSON ERROR: No JSON found")
+                print(f"Raw response (first 1000 chars): {followup_raw_text[:1000]}")
+                analysis_data["general_follow_ups"] = ["Unable to extract follow-ups from AI response. Please try again."]
+
+        # Ensure all fields exist
+        if "general_follow_ups" not in analysis_data or not analysis_data["general_follow_ups"]:
+            analysis_data["general_follow_ups"] = ["No specific follow-ups were generated. Please consult a qualified lawyer for guidance on next steps."]
+
+        # Add disclaimer
         analysis_data["disclaimer"] = ("Disclaimer: This is not legal advice. I am an AI assistant. "
                                        "You must consult a qualified lawyer for advice on your specific case.")
-        
+
+        print(f"[OK] Analysis complete - Fields: {list(analysis_data.keys())}")
+        print(f"[OK] Follow-ups count: {len(analysis_data.get('general_follow_ups', []))}")
+
         return analysis_data, sources
 
     except json.JSONDecodeError as e:
-        # This will now catch both "No JSON" and "Malformed JSON"
         print(f"JSON DECODE ERROR: {e}")
         return {
-            "what_has_happened": "Error: The AI returned an invalid analysis format.",
-            "key_legal_points": "Please try uploading the document again.",
-            "general_follow_ups": "",
-            "disclaimer": "An error occurred."
+            "what_has_happened": "Error: The AI returned an invalid format. Please try uploading the document again.",
+            "key_legal_points": "Unable to parse legal points due to formatting error.",
+            "general_follow_ups": ["Unable to generate follow-ups due to formatting error."],
+            "disclaimer": "An error occurred during analysis."
         }, []
     except Exception as e:
-        print(f"Error generating final answer: {e}")
+        print(f"Error generating analysis: {e}")
         return {
-            "what_has_happened": f"Error: Could not generate the final analysis. {e}",
-            "key_legal_points": "",
-            "general_follow_ups": "",
+            "what_has_happened": f"Error: Could not generate the analysis. {e}",
+            "key_legal_points": "Analysis generation failed.",
+            "general_follow_ups": ["Please try again or contact support."],
             "disclaimer": "An error occurred."
         }, []
 
@@ -341,31 +896,58 @@ def analyze_document():
         return jsonify({"error": "No file part"}), 400
     
     file = request.files['file']
+    user_role = request.form.get('user_role', 'unknown')  # Get user's role
     
     if file.filename == '':
         return jsonify({"error": "No selected file"}), 400
+    
+    if not user_role or user_role == '':
+        return jsonify({"error": "Please select your role in the case"}), 400
     
     if file and file.filename.lower().endswith('.pdf'):
         # Save the uploaded file
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
         file.save(filepath)
         
+        print(f"\n{'='*60}")
         print(f"--- New Job Started for {file.filename} ---")
+        print(f"[INFO] User role: {user_role.upper()}")
+        print(f"[DEBUG] File saved to: {filepath}")
+        sys.stdout.flush()  # Force output immediately
         
         # --- Run the full pipeline ---
         
         # 1. Read PDF
+        print("[STEP 1/3] Reading PDF...")
+        sys.stdout.flush()
         doc_text = extract_text_from_pdf(filepath)
         if not doc_text:
+            print("[ERROR] Could not extract text from PDF")
+            sys.stdout.flush()
             return jsonify({"error": "Could not read text from PDF."}), 500
+        print(f"[OK] Extracted {len(doc_text)} characters from PDF")
+        sys.stdout.flush()
         
         # 2. Get Summaries
+        print("[STEP 2/3] Generating summaries...")
+        sys.stdout.flush()
         story_summary, legal_summary = get_summaries_from_text(doc_text)
+        print(f"[OK] Story summary: {len(story_summary)} chars")
+        print(f"[OK] Legal summary: {len(legal_summary)} chars")
+        sys.stdout.flush()
         
-        # 3. Get RAG Analysis
-        analysis_data, sources = get_rag_answer(legal_summary) # <-- Renamed for clarity
+        # 3. Get RAG Analysis (now with two-stage generation)
+        print("[STEP 3/3] Generating RAG analysis...")
+        sys.stdout.flush()
+        analysis_data, sources = get_rag_answer(legal_summary, story_summary, user_role)
         
+        print("="*60)
         print("--- Job Complete ---")
+        print(f"[RESULT] Analysis fields: {list(analysis_data.keys())}")
+        print(f"[RESULT] Sources count: {len(sources)}")
+        print(f"[RESULT] Final sources: {sources}")
+        print("="*60)
+        sys.stdout.flush()
         
         # 4. Auto-save analysis for logged-in users
         try:
@@ -626,5 +1208,22 @@ def dashboard_page():
 
 # --- 5. RUN THE APP ---
 if __name__ == '__main__':
+    # Fix Windows console encoding issues and disable buffering
+    import sys
+    
+    # Disable output buffering for real-time logs
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+    
+    if sys.platform == 'win32':
+        try:
+            # Set console to UTF-8 mode
+            import codecs
+            sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
+            sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
+        except Exception:
+            pass  # If it fails, continue anyway
+    
     # Runs the web server
-    app.run(debug=True, port=5000)
+    print("[INFO] Starting Flask server with real-time logging...")
+    app.run(debug=True, port=5000, use_reloader=False)
