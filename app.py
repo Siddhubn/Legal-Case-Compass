@@ -113,7 +113,7 @@ safety_settings = {
 }
 
 generation_model = genai.GenerativeModel(
-    "gemini-2.0-flash-exp",  # Using latest flash model
+    "gemini-2.5-flash",  # Using latest flash model
     safety_settings=safety_settings
 )
 
@@ -156,7 +156,7 @@ else:
     print("         To use Ollama, run: ollama serve")
 
 # Manual switch for online/offline mode (None = auto-detect)
-FORCE_MODE = 'offline'  # Set to 'online', 'offline', or None for auto
+FORCE_MODE = 'online'  # Set to 'online', 'offline', or None for auto
 # NOTE: Set to 'offline' because Gemini API quota exceeded
 
 # Connectivity check with manual override
