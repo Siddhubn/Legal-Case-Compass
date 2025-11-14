@@ -9,7 +9,7 @@ import re
 import sqlite3
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import requests
 from llama_cpp import Llama
 import time  # For retry delays
@@ -1023,6 +1023,123 @@ Legal summary:
         return story_text.strip(), legal_text.strip()
 
 
+def check_legal_validity(document_text, story_summary):
+    """
+    Checks if the case is legally valid and court-acceptable based on Constitution, IPC, CPC sections.
+    Returns a dict with status, reason, and recommendations.
+    """
+    validity_prompt = f"""You are a legal expert analyzing whether a case is legally valid and court-acceptable.
+
+Analyze this legal document and determine:
+1. Is this case legally runnable in court based on Indian Constitution, IPC, CPC, and other laws?
+2. Are the legal sections cited properly and applicable?
+3. Does the case have legal merit and standing?
+4. Based on common legal logic, should this case be accepted by a court?
+
+Document Summary:
+{story_summary[:1500]}
+
+Full Legal Content:
+{document_text[:3000]}
+
+Analyze based on:
+- Constitutional validity (Articles cited, fundamental rights)
+- IPC sections (if criminal case)
+- CPC sections (if civil case)
+- Legal precedents and established law
+- Common legal logic and merit
+
+Output ONLY valid JSON:
+{{
+  "is_legally_valid": true or false,
+  "court_acceptable": true or false,
+  "confidence": "high" or "medium" or "low",
+  "legal_basis": "Brief explanation of legal basis (2-3 sentences)",
+  "sections_analysis": "Analysis of legal sections cited",
+  "recommendation": "Should this case be run in court? Why or why not?"
+}}
+
+CRITICAL: Output ONLY the JSON object, nothing else.
+"""
+
+    try:
+        validity_raw = None
+        if is_online():
+            try:
+                validity_response = call_gemini_with_retry(generation_model, validity_prompt)
+                validity_raw = validity_response.text
+            except Exception as e:
+                print(f"[WARNING] Gemini failed for validity check: {str(e)[:100]}")
+                validity_raw = None
+        
+        if not validity_raw:
+            # Fallback to basic keyword analysis
+            return {
+                "status": "⚖️ Legal Validity: Unable to verify (offline mode)",
+                "is_legally_valid": True,
+                "court_acceptable": True,
+                "confidence": "low",
+                "reason": "Automatic analysis unavailable. Manual legal review recommended.",
+                "sections_analysis": "Please consult with a legal professional for detailed section analysis.",
+                "recommendation": "This document appears to be a legal case. Consult with a qualified attorney for proper legal advice."
+            }
+        
+        # Parse validity response
+        match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', validity_raw, re.DOTALL)
+        if not match:
+            match = re.search(r'\{.*\}', validity_raw, re.DOTALL)
+        
+        if match:
+            try:
+                json_str = match.group(0).replace('\n', ' ').replace('\r', '')
+                validity_data = json.loads(json_str)
+                
+                is_valid = validity_data.get('is_legally_valid', True)
+                court_ok = validity_data.get('court_acceptable', True)
+                
+                if is_valid and court_ok:
+                    status = "✅ LEGALLY RUNNABLE: This case is legally valid and court-acceptable"
+                elif is_valid and not court_ok:
+                    status = "⚠️ LEGALLY VALID BUT QUESTIONABLE: Case has legal basis but court acceptance uncertain"
+                else:
+                    status = "❌ NOT LEGALLY RUNNABLE: This case should not be run in court"
+                
+                return {
+                    "status": status,
+                    "is_legally_valid": is_valid,
+                    "court_acceptable": court_ok,
+                    "confidence": validity_data.get('confidence', 'medium'),
+                    "reason": validity_data.get('legal_basis', 'Analysis completed'),
+                    "sections_analysis": validity_data.get('sections_analysis', 'See legal basis'),
+                    "recommendation": validity_data.get('recommendation', 'Consult with a legal professional')
+                }
+            except json.JSONDecodeError:
+                pass
+        
+        # Fallback
+        return {
+            "status": "⚖️ Legal Validity: Analysis completed with limited confidence",
+            "is_legally_valid": True,
+            "court_acceptable": True,
+            "confidence": "low",
+            "reason": "Document appears to be a legal case. Detailed validity analysis unavailable.",
+            "sections_analysis": "Manual review of legal sections recommended.",
+            "recommendation": "Consult with a qualified attorney for proper legal advice on case validity."
+        }
+        
+    except Exception as e:
+        print(f"[ERROR] Legal validity check failed: {e}")
+        return {
+            "status": "⚖️ Legal Validity: Unable to verify",
+            "is_legally_valid": True,
+            "court_acceptable": True,
+            "confidence": "low",
+            "reason": "Automatic analysis failed. Manual legal review required.",
+            "sections_analysis": "Error during analysis.",
+            "recommendation": "Please consult with a legal professional."
+        }
+
+
 def get_rag_answer(legal_summary, story_summary, user_role='unknown', original_doc_text=''):
     """
     Uses Gemini if online, otherwise Ollama (or Mistral fallback) for RAG.
@@ -1048,15 +1165,28 @@ STORY SUMMARY:
 TASK: Determine if this is a legitimate legal court document that can be processed in court.
 
 Check for:
-1. Is this a court judgment, order, or legal petition?
-2. Does it contain proper legal elements (court name, case number, parties, sections, dates)?
-3. Is it a valid legal document that can be brought to court?
-4. Does it have legal merit and proper structure?
+1. Is this a court judgment, order, legal petition, or legal document summary?
+2. Does it contain legal elements (court name, case number, parties, legal sections, dates)?
+3. Is it related to legal proceedings or court matters?
+4. Does it have legal content and structure?
+
+ACCEPT these as legitimate:
+- Court judgments (full or summary)
+- Legal petitions
+- Court orders
+- Legal notices
+- Case summaries from legal databases
+- Documents citing legal sections, parties, and court proceedings
+
+REJECT only if:
+- Completely unrelated to legal matters
+- Personal letters, essays, or general articles with no legal content
+- Documents with no legal terminology or court references
 
 Output ONLY valid JSON with these fields:
 {{
   "is_legitimate": true or false,
-  "document_type": "court judgment" or "legal petition" or "court order" or "not a legal document",
+  "document_type": "court judgment" or "legal petition" or "court order" or "legal summary" or "not a legal document",
   "confidence": "high" or "medium" or "low",
   "reason": "Brief explanation (1-2 sentences)"
 }}
@@ -1065,11 +1195,12 @@ CRITICAL RULES:
 - Output ONLY the JSON object
 - Start with {{ and end with }}
 - Use true/false (not "true"/"false")
-- Be strict: only mark as legitimate if it's clearly a legal court document
+- Be lenient: mark as legitimate if it contains legal content, even if it's a summary
 
 Examples:
-{{"is_legitimate": true, "document_type": "court judgment", "confidence": "high", "reason": "This is a Supreme Court judgment with proper case details, legal sections, and court decision."}}
-{{"is_legitimate": false, "document_type": "not a legal document", "confidence": "high", "reason": "This appears to be a general article or essay, not a court document."}}
+{{"is_legitimate": true, "document_type": "court judgment", "confidence": "high", "reason": "This is a Supreme Court judgment with case details, legal sections, and court decision."}}
+{{"is_legitimate": true, "document_type": "legal summary", "confidence": "high", "reason": "This is a summary of a court judgment with proper legal citations and case details."}}
+{{"is_legitimate": false, "document_type": "not a legal document", "confidence": "high", "reason": "This appears to be a general article with no legal content or court references."}}
 
 Generate JSON:
 """
@@ -1147,6 +1278,15 @@ Generate JSON:
         print("[WARNING] Proceeding with analysis (assuming legitimate)")
         sys.stdout.flush()
         # Continue with analysis if legitimacy check fails (to not break existing functionality)
+    
+    # --- STAGE 0.5: LEGAL VALIDITY CHECK ---
+    print("[STAGE 0.5] Checking legal validity and court acceptability...")
+    sys.stdout.flush()
+    
+    legal_validity_check = check_legal_validity(original_doc_text if original_doc_text else legal_summary, story_summary)
+    print(f"[LEGAL VALIDITY] {legal_validity_check['status']}")
+    print(f"[LEGAL VALIDITY] Reason: {legal_validity_check['reason'][:100]}")
+    sys.stdout.flush()
     
     # Determine perspective based on role
     role_context = ""
@@ -1639,6 +1779,9 @@ Now generate the JSON with 6-8 detailed paragraphs referencing the similar cases
         if "general_follow_ups" not in analysis_data or not analysis_data["general_follow_ups"]:
             analysis_data["general_follow_ups"] = ["No specific follow-ups were generated. Please consult a qualified lawyer for guidance on next steps."]
 
+        # Add legal validity check result
+        analysis_data["legal_validity"] = legal_validity_check
+
         # Add disclaimer
         analysis_data["disclaimer"] = ("Disclaimer: This is not legal advice. I am an AI assistant. "
                                        "You must consult a qualified lawyer for advice on your specific case.")
@@ -1912,7 +2055,7 @@ def analyze_document():
                     json.dumps(analysis_data),
                     json.dumps(sources),
                     json.dumps({'category': category, 'recommended': recommended}),
-                    datetime.utcnow().isoformat()
+                    datetime.now(timezone.utc).isoformat()
                 )
             )
             conn.commit()
@@ -2083,7 +2226,7 @@ def register():
         # SECURITY: Parameterized query to prevent SQL injection (A03:2025 - Injection)
         cur.execute('''INSERT INTO users (username, password_hash, created_at, full_name, phone, address_current, address_permanent, dob, email)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                    (username, pwd_hash, datetime.utcnow().isoformat(), full_name, phone, address_current, address_permanent, dob, email))
+                    (username, pwd_hash, datetime.now(timezone.utc).isoformat(), full_name, phone, address_current, address_permanent, dob, email))
         conn.commit()
         user_id = cur.lastrowid
         conn.close()
@@ -2350,6 +2493,11 @@ def unauthorized(error):
 def forbidden(error):
     """Handle forbidden access"""
     return jsonify({'error': 'Access denied'}), 403
+
+@app.route('/favicon.ico')
+def favicon():
+    """Handle favicon requests to prevent 404 errors"""
+    return '', 204  # No content
 
 @app.errorhandler(404)
 def not_found(error):

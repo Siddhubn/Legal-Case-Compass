@@ -1,31 +1,47 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Legal Case Compass</title>
+    <title>Legal Case Compass - AI-Powered Legal Analysis</title>
+    <link rel="icon" type="image/png" href="/static/lcc_logo.png">
     
     <script src="https://cdn.tailwindcss.com"></script>
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700&family=Libre+Baskerville:wght@400;700&display=swap" rel="stylesheet">
     
     <script>
-        // Custom Tailwind theme
+        // Custom Tailwind theme with dark mode support
         tailwind.config = {
+            darkMode: 'class',
             theme: {
                 extend: {
                     fontFamily: {
-                        sans: ['Inter', 'sans-serif'],
+                        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+                        serif: ['Playfair Display', 'Georgia', 'serif'],
+                        legal: ['Libre Baskerville', 'Georgia', 'serif'],
                     },
                     colors: {
                         'primary': {
-                            'DEFAULT': '#4338ca', // Indigo
-                            'dark': '#312e81'
+                            'DEFAULT': '#1e3a8a',
+                            'dark': '#1e40af',
+                            'light': '#3b82f6'
                         },
-                        'secondary': '#f3f4f6', // Light gray bg
-                        'brand-dark': '#1a3a64', 
+                        'secondary': '#f8fafc',
+                        'brand-dark': '#0f172a',
+                        'judiciary': {
+                            'gold': '#c9a961',
+                            'darkgold': '#a68a4d',
+                            'maroon': '#7c2d12',
+                            'navy': '#1e3a8a',
+                            'darknav': '#0f172a',
+                            'cream': '#fef3c7'
+                        }
+                    },
+                    letterSpacing: {
+                        'legal': '0.025em',
                     }
                 }
             }
@@ -33,209 +49,758 @@
     </script>
 
     <style>
-        /* Pure CSS spinner */
-        .spinner {
-            width: 56px;
-            height: 56px;
-            border-radius: 50%;
-            border: 8px solid;
-            border-color: #ffffff;
-            border-right-color: #4338ca; /* Primary color */
-            animation: spinner-spin 1s infinite linear;
+        /* Enhanced Professional Typography */
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            font-weight: 400;
+            line-height: 1.6;
+            letter-spacing: -0.011em;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
-        @keyframes spinner-spin {
-            to { transform: rotate(360deg); }
+
+        h1, h2, h3, h4, h5, h6 {
+            font-family: 'Playfair Display', Georgia, serif;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            line-height: 1.2;
         }
+
+        .font-legal {
+            font-family: 'Libre Baskerville', Georgia, serif;
+            letter-spacing: 0.015em;
+            line-height: 1.75;
+        }
+
+        /* Judiciary-themed text colors */
+        .text-judiciary-primary {
+            color: #1e3a8a;
+        }
+
+        .dark .text-judiciary-primary {
+            color: #c9a961;
+        }
+
+        /* Enhanced button styles */
+        button, .btn {
+            font-weight: 600;
+            letter-spacing: 0.025em;
+        }
+
+        /* Smooth transitions for theme switching */
+        * {
+            transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+        }
+
+        /* Professional judiciary-themed loader */
+        .loader-container {
+            backdrop-filter: blur(8px);
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        /* Scales of Justice Loader */
+        .scales-loader {
+            width: 120px;
+            height: 120px;
+            position: relative;
+            animation: float 3s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+        }
+
+        .scales-beam {
+            width: 100px;
+            height: 4px;
+            background: linear-gradient(90deg, #d4af37, #ffd700);
+            position: absolute;
+            top: 30px;
+            left: 10px;
+            border-radius: 2px;
+            animation: balance 2s ease-in-out infinite;
+        }
+
+        @keyframes balance {
+            0%, 100% { transform: rotate(0deg); }
+            25% { transform: rotate(-5deg); }
+            75% { transform: rotate(5deg); }
+        }
+
+        .scales-pillar {
+            width: 4px;
+            height: 40px;
+            background: linear-gradient(180deg, #d4af37, #b8941f);
+            position: absolute;
+            top: 30px;
+            left: 58px;
+            border-radius: 2px;
+        }
+
+        .scales-pan {
+            width: 30px;
+            height: 3px;
+            background: #d4af37;
+            position: absolute;
+            top: 50px;
+            border-radius: 2px;
+            animation: swing 2s ease-in-out infinite;
+        }
+
+        .scales-pan-left {
+            left: 10px;
+        }
+
+        .scales-pan-right {
+            right: 10px;
+        }
+
+        @keyframes swing {
+            0%, 100% { transform: translateY(0px); }
+            25% { transform: translateY(5px); }
+            75% { transform: translateY(-5px); }
+        }
+
+        .scales-chain {
+            width: 2px;
+            height: 20px;
+            background: #d4af37;
+            position: absolute;
+            top: 30px;
+        }
+
+        .scales-chain-left {
+            left: 24px;
+        }
+
+        .scales-chain-right {
+            right: 24px;
+        }
+
+        /* Progress stages */
+        .progress-stage {
+            opacity: 0.5;
+            transform: scale(0.95);
+            transition: all 0.3s ease;
+        }
+
+        .progress-stage.active {
+            opacity: 1;
+            transform: scale(1);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .progress-stage.completed {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        /* Smooth card animations */
+        .result-box {
+            animation: slideUp 0.5s ease-out;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
         /* Custom file input style */
-        .file-input-button { cursor: pointer; }
+        .file-input-button {
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .file-input-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
 
         /* Ensure full height for the main container */
         html, body {
-            height: 100%;
-            overflow: hidden; /* Prevent body from scrolling */
+            min-height: 100%;
+            overflow-y: auto;
+        }
+
+        /* Dark mode styles */
+        .dark {
+            color-scheme: dark;
+        }
+
+        .dark body {
+            background-color: #111827;
+            color: #f3f4f6;
+        }
+
+        /* Theme toggle button */
+        .theme-toggle {
+            position: relative;
+            width: 60px;
+            height: 30px;
+            background: #e5e7eb;
+            border-radius: 15px;
+            cursor: pointer;
+            transition: background 0.3s ease;
+        }
+
+        .dark .theme-toggle {
+            background: #374151;
+        }
+
+        .theme-toggle-slider {
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            width: 24px;
+            height: 24px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .dark .theme-toggle-slider {
+            transform: translateX(30px);
+            background: #1f2937;
+        }
+        
+        /* Navbar animations */
+        @keyframes slideInLeft {
+            from { opacity: 0; transform: translateX(-20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        
+        .animate-slideInLeft {
+            animation: slideInLeft 0.5s ease-out;
+        }
+        
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .animate-slideDown {
+            animation: slideDown 0.3s ease-out;
+        }
+
+        /* Professional Judiciary-Themed Scrollbar */
+        /* Webkit browsers (Chrome, Safari, Edge) */
+        ::-webkit-scrollbar {
+            width: 12px;
+            height: 12px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: linear-gradient(180deg, #f3f4f6 0%, #e5e7eb 100%);
+            border-radius: 10px;
+            border: 1px solid #d1d5db;
+        }
+
+        .dark ::-webkit-scrollbar-track {
+            background: linear-gradient(180deg, #1f2937 0%, #111827 100%);
+            border: 1px solid #374151;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, #d4af37 0%, #b8941f 100%);
+            border-radius: 10px;
+            border: 2px solid transparent;
+            background-clip: padding-box;
+            transition: all 0.3s ease;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(180deg, #ffd700 0%, #d4af37 100%);
+            box-shadow: 0 0 10px rgba(212, 175, 55, 0.5);
+            transform: scale(1.05);
+        }
+
+        ::-webkit-scrollbar-thumb:active {
+            background: linear-gradient(180deg, #b8941f 0%, #9a7a1a 100%);
+        }
+
+        /* Firefox */
+        * {
+            scrollbar-width: thin;
+            scrollbar-color: #d4af37 #f3f4f6;
+        }
+
+        .dark * {
+            scrollbar-color: #d4af37 #1f2937;
+        }
+
+        /* Smooth scrolling animation */
+        html {
+            scroll-behavior: smooth;
+        }
+
+        /* Custom scrollbar for specific containers */
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, #4338ca 0%, #312e81 100%);
+        }
+
+        .custom-scroll::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(180deg, #6366f1 0%, #4338ca 100%);
+            box-shadow: 0 0 10px rgba(67, 56, 202, 0.5);
         }
     </style>
 </head>
 
-<body class="font-sans antialiased text-gray-900">
-    <nav class="bg-white shadow">
-        <div class="max-w-6xl mx-auto px-4">
-            <div class="flex justify-between">
-                <div class="flex space-x-4">
-                    <a href="/" class="flex items-center py-4 px-2 text-primary font-bold">
-                        <img src="/static/lcc_logo.png" alt="logo" class="h-10 w-10 mr-2" />
-                        <span>Legal Case Compass</span>
+<body class="font-sans antialiased text-gray-900 dark:text-gray-100 dark:bg-gray-900">
+    <!-- Enhanced Professional Navbar with Animations -->
+    <nav class="bg-white/95 dark:bg-gray-800/95 backdrop-blur-md shadow-lg fixed top-0 left-0 right-0 z-50 border-b border-gray-200 dark:border-gray-700">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <!-- Logo and Brand -->
+                <div class="flex items-center space-x-8">
+                    <a href="/" class="flex items-center space-x-3 group">
+                        <div class="relative">
+                            <div class="absolute inset-0 bg-gradient-to-r from-judiciary-gold to-yellow-600 dark:from-judiciary-gold dark:to-yellow-500 rounded-full blur opacity-30 dark:opacity-50 group-hover:opacity-60 transition-opacity duration-300"></div>
+                            <div class="absolute inset-0 bg-white dark:bg-white rounded-full opacity-90"></div>
+                            <img src="/static/lcc_logo.png" alt="logo" class="relative h-14 w-14 p-2 transition-all duration-300 group-hover:scale-110 group-hover:rotate-6" />
+                        </div>
+                        <span class="text-2xl font-bold font-serif text-judiciary-navy dark:text-judiciary-gold transition-colors duration-300">
+                            Legal Case Compass
+                        </span>
                     </a>
-                    <a href="/app" class="py-4 px-2 text-gray-700 hover:text-primary">Analyze</a>
+                    
+                    <!-- Desktop Navigation Links -->
+                    <div class="hidden md:flex items-center space-x-1">
+                        <a href="/" class="px-3 py-2 text-gray-700 dark:text-gray-300 hover:text-primary dark:hover:text-primary-light hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all duration-200 font-medium relative group">
+                            <span class="relative z-10">Home</span>
+                            <span class="absolute inset-0 bg-gradient-to-r from-primary/10 to-judiciary-gold/10 rounded-lg scale-0 group-hover:scale-100 transition-transform duration-200"></span>
+                        </a>
+                        <a href="/app" class="px-3 py-2 text-gray-700 dark:text-gray-300 hover:text-primary dark:hover:text-primary-light hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all duration-200 font-medium relative group">
+                            <span class="relative z-10">Analyze</span>
+                            <span class="absolute inset-0 bg-gradient-to-r from-primary/10 to-judiciary-gold/10 rounded-lg scale-0 group-hover:scale-100 transition-transform duration-200"></span>
+                        </a>
+                        {% if session.get('username') %}
+                        <a href="/dashboard" class="px-3 py-2 text-gray-700 dark:text-gray-300 hover:text-primary dark:hover:text-primary-light hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all duration-200 font-medium relative group">
+                            <span class="relative z-10">Dashboard</span>
+                            <span class="absolute inset-0 bg-gradient-to-r from-primary/10 to-judiciary-gold/10 rounded-lg scale-0 group-hover:scale-100 transition-transform duration-200"></span>
+                        </a>
+                        {% endif %}
+                    </div>
                 </div>
-                <div class="hidden md:flex items-center space-x-1">
+
+                <!-- Right Side Actions -->
+                <div class="flex items-center space-x-3">
+                    <!-- Theme Toggle -->
+                    <button id="themeToggle" class="theme-toggle hover:scale-105 transition-transform duration-200" aria-label="Toggle theme">
+                        <div class="theme-toggle-slider">
+                            <svg id="sunIcon" class="w-4 h-4 text-yellow-500 transition-transform hover:rotate-180 duration-500" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clip-rule="evenodd"></path>
+                            </svg>
+                            <svg id="moonIcon" class="w-4 h-4 text-gray-300 hidden transition-transform hover:rotate-12 duration-300" fill="currentColor" viewBox="0 0 20 20">
+                                <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"></path>
+                            </svg>
+                        </div>
+                    </button>
+
                     {% if session.get('username') %}
-                      <span class="py-2 px-3 text-sm text-gray-700">Signed in as <strong>{{ session.get('username') }}</strong></span>
-                      <form id="navLogout" method="post" action="/logout" class="inline">
-                        <button type="submit" class="py-2 px-3 bg-red-500 text-white rounded">Logout</button>
-                      </form>
+                        <!-- User Menu -->
+                        <div class="hidden md:flex items-center space-x-2">
+                            <span class="px-3 py-2 text-sm text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 transition-all duration-200 hover:border-primary dark:hover:border-primary-light">
+                                <svg class="w-4 h-4 inline mr-1 -mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                                </svg>
+                                <strong>{{ session.get('username') }}</strong>
+                            </span>
+                            <form id="navLogout" method="post" action="/logout" class="inline">
+                                <button type="submit" class="px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5 font-medium">
+                                    <svg class="w-4 h-4 inline mr-1 -mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+                                    </svg>
+                                    Logout
+                                </button>
+                            </form>
+                        </div>
                     {% else %}
-                      <a href="/register" class="py-4 px-2 text-gray-700 hover:text-primary">Register</a>
-                      <a href="/login" class="py-4 px-2 text-gray-700 hover:text-primary">Login</a>
+                        <!-- Auth Buttons -->
+                        <div class="hidden md:flex items-center space-x-2">
+                            <a href="/login" class="px-4 py-2 text-gray-700 dark:text-gray-300 hover:text-primary dark:hover:text-primary-light font-medium transition-all duration-200 hover:scale-105">
+                                Login
+                            </a>
+                            <a href="/register" class="px-4 py-2 bg-gradient-to-r from-primary to-primary-dark hover:from-primary-dark hover:to-primary text-white rounded-lg shadow-md hover:shadow-lg transition-all duration-200 font-medium transform hover:-translate-y-0.5">
+                                Get Started
+                            </a>
+                        </div>
                     {% endif %}
-                    <a href="/dashboard" class="py-2 px-3 bg-primary text-white rounded">Dashboard</a>
+                    
+                    <!-- Mobile Menu Button -->
+                    <button id="mobileMenuBtn" class="md:hidden p-2 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200">
+                        <svg id="menuIcon" class="w-6 h-6 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                        </svg>
+                        <svg id="closeIcon" class="w-6 h-6 hidden transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
                 </div>
+            </div>
+        </div>
+        
+        <!-- Mobile Menu -->
+        <div id="mobileMenu" class="hidden md:hidden border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 animate-slideDown">
+            <div class="px-4 py-3 space-y-2">
+                <a href="/" class="block px-3 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors duration-200 font-medium">Home</a>
+                <a href="/app" class="block px-3 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors duration-200 font-medium">Analyze</a>
+                {% if session.get('username') %}
+                    <a href="/dashboard" class="block px-3 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors duration-200 font-medium">Dashboard</a>
+                    <div class="pt-2 border-t border-gray-200 dark:border-gray-700">
+                        <span class="block px-3 py-2 text-sm text-gray-600 dark:text-gray-400">Signed in as <strong>{{ session.get('username') }}</strong></span>
+                        <form id="navLogoutMobile" method="post" action="/logout" class="mt-2">
+                            <button type="submit" class="w-full px-3 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors duration-200 font-medium text-left">Logout</button>
+                        </form>
+                    </div>
+                {% else %}
+                    <a href="/login" class="block px-3 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors duration-200 font-medium">Login</a>
+                    <a href="/register" class="block px-3 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors duration-200 font-medium">Get Started</a>
+                {% endif %}
             </div>
         </div>
     </nav>
 
-    <div id="loader" class="fixed inset-0 z-50 flex-col items-center justify-center bg-gray-900/60 backdrop-blur-sm hidden">
-        <div class="spinner"></div>
-        <p class="text-white text-lg font-medium mt-4">Analyzing your document...</p>
-    </div>
-    <div class="flex flex-col md:flex-row h-screen">
-
-        <div class="w-full md:w-96 lg:w-[400px] bg-white p-6 shadow-lg border-r border-gray-200 flex-shrink-0 flex flex-col overflow-y-auto">
-            
-            <header class="mb-6">
-                <h1 class="text-3xl font-bold text-brand-dark">
-                    Legal Case Compass
-                </h1>
-                <p class="text-sm text-gray-600 mt-1">AI-Powered Document Analysis</p>
-
-                
-            </header>
-            
-            <hr class="mb-6">
-
-            <div class="flex-grow">
-                <h2 class="text-xl font-semibold text-gray-800 mb-3">Upload Document</h2>
-                <p class="text-gray-600 text-sm mb-5">Select your PDF court notice or judgment to begin analysis.</p>
-                
-                <div class="flex flex-col gap-4">
-                    <label for="pdfFile" class="file-input-button w-full px-4 py-3 bg-gray-100 text-gray-700 rounded-lg border border-gray-300 hover:bg-gray-200 transition duration-200 truncate">
-                        <span id="file-chosen-text">Choose a PDF file...</span>
-                    </label>
-                    <input type="file" id="pdfFile" accept=".pdf" class="hidden">
-                    
-                    <div class="w-full">
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Your Role in the Case:</label>
-                        <select id="userRole" class="w-full px-4 py-3 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500">
-                            <option value="">Select your role...</option>
-                            <option value="plaintiff">Plaintiff / Petitioner / Appellant</option>
-                            <option value="defendant">Defendant / Respondent</option>
-                        </select>
-                    </div>
-                    
-                    <button id="analyzeButton" class="w-full px-6 py-3 text-base font-medium text-white bg-green-600 rounded-lg shadow-md hover:bg-green-700 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2">
-                        Analyze Document
-                    </button>
-                </div>
-
-                
-            </div>
-
-            <footer class="text-center text-xs text-gray-400 mt-8">
-                Disclaimer: AI analysis is not legal advice.
-            </footer>
+    <!-- Enhanced Professional Loader with Real-time Progress -->
+    <div id="loader" class="loader-container fixed inset-0 z-50 flex-col items-center justify-center bg-gray-900/80 dark:bg-black/90 backdrop-blur-md hidden">
+        <!-- Scales of Justice Loader -->
+        <div class="scales-loader mb-8">
+            <div class="scales-beam"></div>
+            <div class="scales-pillar"></div>
+            <div class="scales-chain scales-chain-left"></div>
+            <div class="scales-chain scales-chain-right"></div>
+            <div class="scales-pan scales-pan-left"></div>
+            <div class="scales-pan scales-pan-right"></div>
         </div>
-
-        <div class="flex-1 bg-secondary p-6 md:p-8 overflow-y-auto">
+        
+        <!-- Progress Stages -->
+        <div class="bg-white/10 dark:bg-gray-800/50 backdrop-blur-sm rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl border border-white/20">
+            <h3 class="text-white text-2xl font-serif font-bold text-center mb-6">Analyzing Document</h3>
             
-            <div id="results" class="hidden max-w-7xl mx-auto">
-                <h2 class="text-2xl font-semibold text-gray-800 mb-5">Analysis Results</h2>
-                
-                <!-- Legitimacy Check Section -->
-                <div id="legitimacyCheck" class="mb-6 bg-white rounded-xl shadow-lg overflow-hidden border-2 border-green-500">
-                    <div class="bg-green-50 px-5 py-4 border-b border-green-200">
-                        <div class="flex items-center">
-                            <svg class="w-6 h-6 text-green-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            <div class="space-y-4">
+                <!-- Stage 1 -->
+                <div id="stage1" class="progress-stage flex items-center space-x-3 p-3 rounded-lg bg-white/5">
+                    <div class="flex-shrink-0">
+                        <div class="w-8 h-8 rounded-full bg-judiciary-gold flex items-center justify-center">
+                            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                             </svg>
-                            <h3 class="text-lg font-semibold text-green-800">Document Legitimacy Check</h3>
                         </div>
                     </div>
+                    <div class="flex-1">
+                        <p class="text-white font-medium">Reading PDF Document</p>
+                        <p class="text-gray-300 text-sm">Extracting text and content...</p>
+                    </div>
+                </div>
+                
+                <!-- Stage 2 -->
+                <div id="stage2" class="progress-stage flex items-center space-x-3 p-3 rounded-lg bg-white/5">
+                    <div class="flex-shrink-0">
+                        <div class="w-8 h-8 rounded-full bg-judiciary-gold flex items-center justify-center">
+                            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="flex-1">
+                        <p class="text-white font-medium">Verifying Legitimacy</p>
+                        <p class="text-gray-300 text-sm">Checking document authenticity...</p>
+                    </div>
+                </div>
+                
+                <!-- Stage 3 -->
+                <div id="stage3" class="progress-stage flex items-center space-x-3 p-3 rounded-lg bg-white/5">
+                    <div class="flex-shrink-0">
+                        <div class="w-8 h-8 rounded-full bg-judiciary-gold flex items-center justify-center">
+                            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"></path>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="flex-1">
+                        <p class="text-white font-medium">Generating Summaries</p>
+                        <p class="text-gray-300 text-sm">Creating plain and legal summaries...</p>
+                    </div>
+                </div>
+                
+                <!-- Stage 4 -->
+                <div id="stage4" class="progress-stage flex items-center space-x-3 p-3 rounded-lg bg-white/5">
+                    <div class="flex-shrink-0">
+                        <div class="w-8 h-8 rounded-full bg-judiciary-gold flex items-center justify-center">
+                            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="flex-1">
+                        <p class="text-white font-medium">AI Analysis & Recommendations</p>
+                        <p class="text-gray-300 text-sm">Searching precedents and generating insights...</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="mt-6 text-center">
+                <p id="loaderMessage" class="text-gray-300 text-sm italic">Analyzing document...</p>
+            </div>
+        </div>
+    </div>
+    <!-- Main Container with Centered Layout -->
+    <div class="min-h-screen pt-20 pb-12 px-4 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 overflow-y-auto">
+        <div class="max-w-4xl mx-auto">
+            
+            <!-- Upload Section - Centered Card -->
+            <div class="mb-8 animate-fadeIn">
+                <!-- Header -->
+                <div class="text-center mb-8">
+                    <div class="inline-flex items-center justify-center mb-4">
+                        <div class="relative">
+                            <div class="absolute inset-0 bg-gradient-to-r from-judiciary-gold to-yellow-600 dark:from-judiciary-gold dark:to-yellow-500 rounded-2xl blur-xl opacity-50"></div>
+                            <div class="relative bg-gradient-to-br from-judiciary-navy to-primary dark:from-judiciary-gold dark:to-yellow-600 p-4 rounded-2xl shadow-2xl">
+                                <svg class="w-12 h-12 text-white dark:text-gray-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                </svg>
+                            </div>
+                        </div>
+                    </div>
+                    <h1 class="text-2xl md:text-3xl lg:text-4xl font-bold text-judiciary-navy dark:text-judiciary-gold font-serif mb-2">
+                        Document Analysis
+                    </h1>
+                    <p class="text-sm md:text-base text-gray-600 dark:text-gray-400 mb-3">AI-Powered Legal Insights with Precedent Intelligence</p>
+                    <div class="flex flex-wrap justify-center gap-2 text-xs">
+                        <span class="px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-full">✓ Court Acceptability Check</span>
+                        <span class="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-full">✓ Similar Case Analysis</span>
+                        <span class="px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 rounded-full">✓ Secure & Private</span>
+                    </div>
+                </div>
+
+                <!-- Upload & Analysis Card -->
+                <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+                    <!-- Steps Indicator -->
+                    <div class="bg-gradient-to-r from-judiciary-navy to-primary dark:from-judiciary-gold/20 dark:to-yellow-600/20 px-6 py-4">
+                        <div class="flex items-center justify-between max-w-2xl mx-auto">
+                            <div class="flex items-center space-x-2">
+                                <div id="step1Circle" class="w-8 h-8 bg-white dark:bg-gray-800 rounded-full flex items-center justify-center text-primary dark:text-judiciary-gold font-bold transition-all duration-300">1</div>
+                                <span id="step1Text" class="text-white dark:text-judiciary-gold font-medium hidden sm:inline transition-all duration-300">Upload</span>
+                            </div>
+                            <div id="step1Line" class="flex-1 h-1 bg-white/30 dark:bg-gray-700 mx-4 transition-all duration-300"></div>
+                            <div class="flex items-center space-x-2">
+                                <div id="step2Circle" class="w-8 h-8 bg-white/30 dark:bg-gray-700 rounded-full flex items-center justify-center text-white dark:text-gray-400 font-bold transition-all duration-300">2</div>
+                                <span id="step2Text" class="text-white/70 dark:text-gray-400 font-medium hidden sm:inline transition-all duration-300">Select Role</span>
+                            </div>
+                            <div id="step2Line" class="flex-1 h-1 bg-white/30 dark:bg-gray-700 mx-4 transition-all duration-300"></div>
+                            <div class="flex items-center space-x-2">
+                                <div id="step3Circle" class="w-8 h-8 bg-white/30 dark:bg-gray-700 rounded-full flex items-center justify-center text-white dark:text-gray-400 font-bold transition-all duration-300">3</div>
+                                <span id="step3Text" class="text-white/70 dark:text-gray-400 font-medium hidden sm:inline transition-all duration-300">Analyze</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="p-8">
+                        <!-- Upload Section -->
+                        <div class="mb-8">
+                            <label class="block mb-3">
+                                <span class="text-lg font-bold text-gray-800 dark:text-gray-200 flex items-center">
+                                    <svg class="w-6 h-6 mr-2 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                                    </svg>
+                                    Upload Legal Document
+                                </span>
+                                <span class="text-sm text-gray-600 dark:text-gray-400 ml-8">PDF court notice, judgment, or legal document</span>
+                            </label>
+                            <label for="pdfFile" class="file-input-button block w-full px-8 py-12 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-600 rounded-2xl border-3 border-dashed border-gray-300 dark:border-gray-600 hover:border-primary dark:hover:border-primary-light hover:shadow-xl transition-all duration-300 cursor-pointer text-center group">
+                                <svg class="w-16 h-16 mx-auto mb-4 text-gray-400 dark:text-gray-500 group-hover:text-primary dark:group-hover:text-primary-light group-hover:scale-110 transition-all duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                                </svg>
+                                <span id="file-chosen-text" class="text-lg font-semibold text-gray-700 dark:text-gray-300 block mb-2">Choose PDF file...</span>
+                                <p class="text-sm text-gray-500 dark:text-gray-400">Click to browse or drag and drop</p>
+                            </label>
+                            <input type="file" id="pdfFile" accept=".pdf" class="hidden">
+                        </div>
+
+                        <!-- Role Selection -->
+                        <div class="mb-8">
+                            <label class="block mb-3">
+                                <span class="text-lg font-bold text-gray-800 dark:text-gray-200 flex items-center">
+                                    <svg class="w-6 h-6 mr-2 text-purple-600 dark:text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                                    </svg>
+                                    Your Role in the Case
+                                </span>
+                                <span class="text-sm text-gray-600 dark:text-gray-400 ml-8">Select your position in this legal matter</span>
+                            </label>
+                            <select id="userRole" class="w-full px-6 py-4 bg-gray-50 dark:bg-gray-700 border-2 border-gray-200 dark:border-gray-600 text-gray-900 dark:text-gray-100 rounded-xl focus:outline-none focus:ring-4 focus:ring-primary/30 dark:focus:ring-primary-light/30 focus:border-primary dark:focus:border-primary-light transition-all shadow-sm text-lg">
+                                <option value="">Select your role in the case...</option>
+                                <option value="plaintiff">🔵 Plaintiff / Petitioner / Appellant</option>
+                                <option value="defendant">🔴 Defendant / Respondent</option>
+                            </select>
+                        </div>
+
+                        <!-- Analyze Button -->
+                        <button id="analyzeButton" class="w-full px-6 md:px-8 py-4 md:py-5 text-lg md:text-xl font-bold text-white bg-gradient-to-r from-green-600 via-green-700 to-green-800 hover:from-green-700 hover:via-green-800 hover:to-green-900 rounded-xl shadow-2xl hover:shadow-green-500/50 transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-green-500/50 transform hover:scale-[1.02] hover:-translate-y-1">
+                            <span class="flex items-center justify-center">
+                                <svg class="w-6 h-6 md:w-7 md:h-7 mr-2 md:mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                                </svg>
+                                Analyze Document
+                            </span>
+                        </button>
+
+                        <!-- Disclaimer -->
+                        <div class="mt-6 p-4 bg-yellow-50 dark:bg-yellow-900/20 border-l-4 border-yellow-500 rounded-r-xl">
+                            <p class="text-sm text-yellow-800 dark:text-yellow-200 font-medium flex items-start">
+                                <svg class="w-5 h-5 mr-2 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                                </svg>
+                                <span>This AI analysis is for informational purposes only and does not constitute legal advice. Please consult with a qualified attorney for legal guidance.</span>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Results Section -->
+            <div id="results" class="hidden animate-slideUp max-w-7xl mx-auto">
+                <h2 class="text-xl md:text-2xl font-semibold text-gray-800 dark:text-gray-200 mb-5 font-serif">Analysis Results</h2>
+                
+                <!-- Legitimacy Check Section -->
+                <div id="legitimacyCheck" class="mb-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden border-2 border-green-500 dark:border-green-600">
+                    <div class="bg-green-50 dark:bg-green-900/20 px-5 py-4 border-b border-green-200 dark:border-green-800">
+                        <h3 id="legitimacyTitle" class="text-lg font-semibold text-green-800 dark:text-green-400 flex items-center">
+                            <svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            Document Legitimacy Check
+                        </h3>
+                    </div>
                     <div class="p-5">
-                        <p id="legitimacyMessage" class="text-gray-700 text-base"></p>
-                        <p id="legitimacyConfidence" class="text-sm text-gray-500 mt-2"></p>
+                        <p id="legitimacyMessage" class="text-gray-700 dark:text-gray-300 text-base"></p>
+                        <p id="legitimacyConfidence" class="text-sm text-gray-500 dark:text-gray-400 mt-2"></p>
+                    </div>
+                </div>
+
+                <!-- Legal Validity Check Section -->
+                <div id="legalValidityCheck" class="mb-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden border-2" style="display: none;">
+                    <div id="legalValidityHeader" class="px-5 py-4 border-b">
+                        <h3 id="legalValidityTitle" class="text-lg font-semibold flex items-center">
+                            <svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3"></path>
+                            </svg>
+                            Legal Validity & Court Acceptability
+                        </h3>
+                    </div>
+                    <div class="p-5">
+                        <div id="legalValidityStatus" class="text-lg font-bold mb-3"></div>
+                        <div class="space-y-3">
+                            <div>
+                                <p class="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-1">Legal Basis:</p>
+                                <p id="legalValidityReason" class="text-gray-700 dark:text-gray-300"></p>
+                            </div>
+                            <div>
+                                <p class="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-1">Sections Analysis:</p>
+                                <p id="legalValiditySections" class="text-gray-700 dark:text-gray-300"></p>
+                            </div>
+                            <div class="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 p-4 rounded-r">
+                                <p class="text-sm font-semibold text-blue-800 dark:text-blue-400 mb-1">Recommendation:</p>
+                                <p id="legalValidityRecommendation" class="text-blue-700 dark:text-blue-300 text-sm"></p>
+                            </div>
+                            <p id="legalValidityConfidence" class="text-xs text-gray-500 dark:text-gray-400 italic"></p>
+                        </div>
                     </div>
                 </div>
                 
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div class="result-box bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200">
-                        <h2 class="text-xl font-semibold text-brand-dark bg-gray-50 px-5 py-4 border-b border-gray-200">
+                    <div class="result-box bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+                        <h2 class="text-xl font-semibold text-brand-dark dark:text-judiciary-gold bg-gray-50 dark:bg-gray-700 px-5 py-4 border-b border-gray-200 dark:border-gray-600 font-serif">
                             Plain-Language Summary
                         </h2>
                         <div class="p-5 md:p-6">
-                            <pre id="storySummary" class="whitespace-pre-wrap break-words font-sans text-base text-gray-700 leading-relaxed"></pre>
+                            <pre id="storySummary" class="whitespace-pre-wrap break-words font-serif text-sm md:text-base text-gray-700 dark:text-gray-300 leading-relaxed" style="font-family: 'Times New Roman', 'Crimson Pro', serif;"></pre>
                         </div>
                     </div>
 
-                    <div class="result-box bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200">
-                        <h2 class="text-xl font-semibold text-brand-dark bg-gray-50 px-5 py-4 border-b border-gray-200">
+                    <div class="result-box bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+                        <h2 class="text-xl font-semibold text-brand-dark dark:text-judiciary-gold bg-gray-50 dark:bg-gray-700 px-5 py-4 border-b border-gray-200 dark:border-gray-600 font-serif">
                             Legal Summary
                         </h2>
                         <div class="p-5 md:p-6">
                             <!-- Back to <pre> for simple text -->
-                            <pre id="legalSummary" class="whitespace-pre-wrap break-words font-sans text-base text-gray-700 leading-relaxed"></pre>
+                            <pre id="legalSummary" class="whitespace-pre-wrap break-words font-serif text-sm md:text-base text-gray-700 dark:text-gray-300 leading-relaxed" style="font-family: 'Times New Roman', 'Crimson Pro', serif;"></pre>
                         </div>
                     </div>
 
-                    <div class="result-box lg:col-span-2 bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200">
-                        <h2 class="text-xl font-semibold text-brand-dark bg-gray-50 px-5 py-4 border-b border-gray-200">
+                    <div class="result-box lg:col-span-2 bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+                        <h2 class="text-xl font-semibold text-brand-dark dark:text-judiciary-gold bg-gray-50 dark:bg-gray-700 px-5 py-4 border-b border-gray-200 dark:border-gray-600 font-serif">
                             Analysis & Next Steps
                         </h2>
                         
-                        <div class="p-5 md:p-6 divide-y divide-gray-200">
+                        <div class="p-5 md:p-6 divide-y divide-gray-200 dark:divide-gray-700">
                             
                             <div class="py-4">
-                                <h3 class="text-lg font-medium text-gray-800">1. What has happened so far?</h3>
-                                <p id="analysis_part1" class="whitespace-pre-wrap break-words font-sans text-base text-gray-700 leading-relaxed mt-2"></p>
+                                <h3 class="text-base md:text-lg font-medium text-gray-800 dark:text-gray-200 font-serif">1. What has happened so far?</h3>
+                                <p id="analysis_part1" class="whitespace-pre-wrap break-words font-serif text-sm md:text-base text-gray-700 dark:text-gray-300 leading-relaxed mt-2" style="font-family: 'Times New Roman', 'Crimson Pro', serif;"></p>
                             </div>
                             
                             <div class="py-4">
-                                <h3 class="text-lg font-medium text-gray-800">2. Key Legal Points</h3>
-                                <p id="analysis_part2" class="whitespace-pre-wrap break-words font-sans text-base text-gray-700 leading-relaxed mt-2"></p>
+                                <h3 class="text-base md:text-lg font-medium text-gray-800 dark:text-gray-200 font-serif">2. Key Legal Points</h3>
+                                <p id="analysis_part2" class="whitespace-pre-wrap break-words font-serif text-sm md:text-base text-gray-700 dark:text-gray-300 leading-relaxed mt-2" style="font-family: 'Times New Roman', 'Crimson Pro', serif;"></p>
                             </div>
                             
                             <div class="py-4">
-                                <h3 class="text-lg font-medium text-gray-800">3. General Follow-Ups</h3>
-                                <p class="text-sm text-gray-600 mb-3 italic">Recommended actions based on your case and similar successful cases.</p>
-                                <div id="analysis_part3" class="space-y-3 text-base text-gray-700 leading-relaxed mt-2">
+                                <h3 class="text-base md:text-lg font-medium text-gray-800 dark:text-gray-200 font-serif">3. General Follow-Ups</h3>
+                                <p class="text-xs md:text-sm text-gray-600 dark:text-gray-400 mb-3 italic">Recommended actions based on your case and similar successful cases.</p>
+                                <div id="analysis_part3" class="space-y-3 text-sm md:text-base text-gray-700 dark:text-gray-300 leading-relaxed mt-2 font-serif" style="font-family: 'Times New Roman', 'Crimson Pro', serif;">
                                     </div>
                             </div>
                             
                             <div class="py-4">
-                                <pre id="analysis_disclaimer" class="whitespace-pre-wrap break-words font-sans text-sm text-gray-500 italic leading-relaxed"></pre>
+                                <pre id="analysis_disclaimer" class="whitespace-pre-wrap break-words font-serif text-xs md:text-sm text-gray-500 dark:text-gray-400 italic leading-relaxed" style="font-family: 'Times New Roman', 'Crimson Pro', serif;"></pre>
                             </div>
 
                         </div>
                     </div>
 
-                    <div class="result-box lg:col-span-2 bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200">
-                        <h2 class="text-xl font-semibold text-brand-dark bg-gray-50 px-5 py-4 border-b border-gray-200">
+                    <div class="result-box lg:col-span-2 bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+                        <h2 class="text-xl font-semibold text-brand-dark dark:text-judiciary-gold bg-gray-50 dark:bg-gray-700 px-5 py-4 border-b border-gray-200 dark:border-gray-600 font-serif">
                             Sources Referenced
                         </h2>
                         <div class="p-5 md:p-6">
-                            <p class="text-gray-600 mb-4">These are the documents from the knowledge base used to generate the analysis.</p>
-                            <ul id="sourceList" class="list-disc list-inside space-y-2">
+                            <p class="text-gray-600 dark:text-gray-400 mb-4">These are the documents from the knowledge base used to generate the analysis.</p>
+                            <ul id="sourceList" class="list-disc list-inside space-y-2 text-gray-700 dark:text-gray-300">
                                     </ul>
                         </div>
                     </div>
 
-                    <div class="result-box lg:col-span-2 bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200">
-                        <h2 class="text-xl font-semibold text-brand-dark bg-gray-50 px-5 py-4 border-b border-gray-200">
+                    <div class="result-box lg:col-span-2 bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+                        <h2 class="text-xl font-semibold text-brand-dark dark:text-judiciary-gold bg-gray-50 dark:bg-gray-700 px-5 py-4 border-b border-gray-200 dark:border-gray-600 font-serif">
                             Recommended Lawyers
                         </h2>
                         <div class="p-5 md:p-6">
-                            <p class="text-gray-600 mb-4">Based on the detected case category, here are recommended lawyers you may consult.</p>
+                            <p class="text-gray-600 dark:text-gray-400 mb-4">Based on the detected case category, here are recommended lawyers you may consult.</p>
                             <div id="recommendedList" class="space-y-3"></div>
                         </div>
                     </div>
                 </div>
             </div>
             
-            <div id="results-placeholder" class="flex flex-col items-center justify-center h-full text-gray-500">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-32 h-32 text-gray-300">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m5.231 13.481L15 17.25m-4.5-1.5s.596-1.29 1.125-2.25m-2.81 4.5V17.25m-1.125-3H5.625a1.125 1.125 0 0 1-1.125-1.125v-1.5c0-.621.504-1.125 1.125-1.125H7.5m6 4.5v-1.5c0-.621.504-1.125 1.125-1.125h1.5c.621 0 1.125.504 1.125 1.125v1.5m-6 4.5h.008v.007H10.5m-.008 0c.002 0 .002 0 .005 0a.002.002 0 1 1-.006 0m.002 0c.002 0 .002 0 .005 0a.002.002 0 1 1-.006 0M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0 0a8.949 8.F949 0 0 0 5.06-1.48m-5.06 1.48a8.949 8.949 0 0 1-5.06-1.48m5.06 1.48 0 0" />
-                </svg>
-                <p class="text-lg mt-4">Your analysis results will appear here.</p>
-            </div>
         </div>
     </div>
 
@@ -253,10 +818,60 @@
                 } else {
                     fileChosenText.textContent = fileName;
                 }
+                // Update step 1 as complete
+                updateProgressStep(1, true);
             } else {
                 fileChosenText.textContent = 'Choose a PDF file...';
+                updateProgressStep(1, false);
             }
         });
+
+        // Role selection handler
+        const userRoleSelect = document.getElementById('userRole');
+        userRoleSelect.addEventListener('change', () => {
+            if (userRoleSelect.value) {
+                updateProgressStep(2, true);
+            } else {
+                updateProgressStep(2, false);
+            }
+        });
+
+        // Function to update progress steps
+        function updateProgressStep(step, isComplete) {
+            const circle = document.getElementById(`step${step}Circle`);
+            const text = document.getElementById(`step${step}Text`);
+            const line = document.getElementById(`step${step}Line`);
+            
+            if (isComplete) {
+                // Mark step as complete
+                circle.classList.remove('bg-white/30', 'dark:bg-gray-700');
+                circle.classList.add('bg-white', 'dark:bg-gray-800');
+                circle.classList.remove('text-white', 'dark:text-gray-400');
+                circle.classList.add('text-primary', 'dark:text-judiciary-gold');
+                
+                text.classList.remove('text-white/70', 'dark:text-gray-400');
+                text.classList.add('text-white', 'dark:text-judiciary-gold');
+                
+                if (line) {
+                    line.classList.remove('bg-white/30', 'dark:bg-gray-700');
+                    line.classList.add('bg-white', 'dark:bg-judiciary-gold');
+                }
+            } else {
+                // Mark step as incomplete
+                circle.classList.remove('bg-white', 'dark:bg-gray-800');
+                circle.classList.add('bg-white/30', 'dark:bg-gray-700');
+                circle.classList.remove('text-primary', 'dark:text-judiciary-gold');
+                circle.classList.add('text-white', 'dark:text-gray-400');
+                
+                text.classList.remove('text-white', 'dark:text-judiciary-gold');
+                text.classList.add('text-white/70', 'dark:text-gray-400');
+                
+                if (line) {
+                    line.classList.remove('bg-white', 'dark:bg-judiciary-gold');
+                    line.classList.add('bg-white/30', 'dark:bg-gray-700');
+                }
+            }
+        }
 
         
         // --- HELPER FUNCTION FOR DETAILED RECOMMENDATIONS ---
@@ -382,7 +997,6 @@
             const userRole = document.getElementById('userRole').value;
             const loader = document.getElementById('loader');
             const resultsSection = document.getElementById('results');
-            const placeholderSection = document.getElementById('results-placeholder');
             
             if (!file) {
                 alert('Please select a PDF file first.');
@@ -394,11 +1008,16 @@
                 return;
             }
 
-            // Show loader and hide both results and placeholder
+            // Update step 3 as in progress
+            updateProgressStep(3, true);
+
+            // Show loader and hide results
             loader.classList.remove('hidden');
             loader.classList.add('flex');
             resultsSection.style.display = 'none';
-            placeholderSection.style.display = 'none';
+            
+            // Start progress simulation
+            simulateProgress();
 
             const formData = new FormData();
             formData.append('file', file);
@@ -437,15 +1056,51 @@
                     
                     if (legitCheck.passed) {
                         // Document passed legitimacy check
-                        legitSection.className = 'mb-6 bg-white rounded-xl shadow-lg overflow-hidden border-2 border-green-500';
-                        legitSection.querySelector('.bg-green-50').className = 'bg-green-50 px-5 py-4 border-b border-green-200';
-                        legitSection.querySelector('svg').className = 'w-6 h-6 text-green-600 mr-3';
-                        legitSection.querySelector('h3').className = 'text-lg font-semibold text-green-800';
-                        legitSection.querySelector('h3').innerHTML = '<svg class="w-6 h-6 text-green-600 mr-3 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>Document Legitimacy Verified';
+                        legitSection.className = 'mb-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden border-2 border-green-500 dark:border-green-600';
+                        legitSection.querySelector('.bg-green-50').className = 'bg-green-50 dark:bg-green-900/20 px-5 py-4 border-b border-green-200 dark:border-green-800';
+                        document.getElementById('legitimacyTitle').innerHTML = '<svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>Document Legitimacy Verified';
+                        document.getElementById('legitimacyTitle').className = 'text-lg font-semibold text-green-800 dark:text-green-400 flex items-center';
                         legitMessage.textContent = legitCheck.message;
                         legitConfidence.textContent = `Confidence Level: ${legitCheck.confidence.toUpperCase()}`;
-                        legitConfidence.className = 'text-sm text-green-600 font-medium mt-2';
+                        legitConfidence.className = 'text-sm text-green-600 dark:text-green-400 font-medium mt-2';
                     }
+                }
+
+                // --- DISPLAY LEGAL VALIDITY CHECK RESULT ---
+                if (data.analysis && data.analysis.legal_validity) {
+                    const validity = data.analysis.legal_validity;
+                    const validitySection = document.getElementById('legalValidityCheck');
+                    const validityHeader = document.getElementById('legalValidityHeader');
+                    
+                    // Show the section
+                    validitySection.style.display = 'block';
+                    
+                    // Determine color based on status
+                    let borderColor, bgColor, textColor;
+                    if (validity.is_legally_valid && validity.court_acceptable) {
+                        borderColor = 'border-green-500 dark:border-green-600';
+                        bgColor = 'bg-green-50 dark:bg-green-900/20';
+                        textColor = 'text-green-800 dark:text-green-400';
+                    } else if (validity.is_legally_valid && !validity.court_acceptable) {
+                        borderColor = 'border-yellow-500 dark:border-yellow-600';
+                        bgColor = 'bg-yellow-50 dark:bg-yellow-900/20';
+                        textColor = 'text-yellow-800 dark:text-yellow-400';
+                    } else {
+                        borderColor = 'border-red-500 dark:border-red-600';
+                        bgColor = 'bg-red-50 dark:bg-red-900/20';
+                        textColor = 'text-red-800 dark:text-red-400';
+                    }
+                    
+                    validitySection.className = `mb-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden border-2 ${borderColor}`;
+                    validityHeader.className = `${bgColor} px-5 py-4 border-b border-gray-200 dark:border-gray-700`;
+                    document.getElementById('legalValidityTitle').className = `text-lg font-semibold ${textColor} flex items-center`;
+                    
+                    document.getElementById('legalValidityStatus').textContent = validity.status;
+                    document.getElementById('legalValidityStatus').className = `text-lg font-bold mb-3 ${textColor}`;
+                    document.getElementById('legalValidityReason').textContent = validity.reason;
+                    document.getElementById('legalValiditySections').textContent = validity.sections_analysis;
+                    document.getElementById('legalValidityRecommendation').textContent = validity.recommendation;
+                    document.getElementById('legalValidityConfidence').textContent = `Confidence Level: ${validity.confidence.toUpperCase()}`;
                 }
 
                 // --- CHECK LEGITIMACY FIRST ---
@@ -455,13 +1110,13 @@
                     
                     // Update legitimacy section to show failure
                     const legitSection = document.getElementById('legitimacyCheck');
-                    legitSection.className = 'mb-6 bg-white rounded-xl shadow-lg overflow-hidden border-2 border-red-500';
-                    legitSection.querySelector('.bg-green-50').className = 'bg-red-50 px-5 py-4 border-b border-red-200';
-                    legitSection.querySelector('h3').innerHTML = '<svg class="w-6 h-6 text-red-600 mr-3 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>Document Not Accepted';
-                    legitSection.querySelector('h3').className = 'text-lg font-semibold text-red-800';
+                    legitSection.className = 'mb-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden border-2 border-red-500 dark:border-red-600';
+                    legitSection.querySelector('.bg-green-50').className = 'bg-red-50 dark:bg-red-900/20 px-5 py-4 border-b border-red-200 dark:border-red-800';
+                    document.getElementById('legitimacyTitle').innerHTML = '<svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>Document Not Accepted';
+                    document.getElementById('legitimacyTitle').className = 'text-lg font-semibold text-red-800 dark:text-red-400 flex items-center';
                     document.getElementById('legitimacyMessage').textContent = data.legitimacy_check.message;
                     document.getElementById('legitimacyConfidence').textContent = `Confidence Level: ${data.legitimacy_check.confidence.toUpperCase()}`;
-                    document.getElementById('legitimacyConfidence').className = 'text-sm text-red-600 font-medium mt-2';
+                    document.getElementById('legitimacyConfidence').className = 'text-sm text-red-600 dark:text-red-400 font-medium mt-2';
                     
                     // Hide normal summaries
                     document.getElementById('storySummary').textContent = "Document legitimacy check failed.";
@@ -550,19 +1205,25 @@
                 // --- END OF UPDATE ---
 
 
-                // --- UNCHANGED CODE FOR SOURCES ---
+                // --- SOURCES SECTION ---
                 const sourceList = document.getElementById('sourceList');
                 sourceList.innerHTML = ''; // Clear old sources
                 
                 if (data.sources && data.sources.length > 0) {
+                    console.log('Displaying', data.sources.length, 'sources');
                     data.sources.forEach(source => {
                         const li = document.createElement('li');
+                        li.className = 'truncate';
                         const a = document.createElement('a');
                         
+                        // Extract just the filename from the path
+                        const filename = source.split('/').pop();
+                        
                         a.href = '/get-file/' + source; 
-                        a.textContent = source;
+                        a.textContent = filename;
+                        a.title = source; // Show full path on hover
                         a.target = '_blank';
-                        a.className = 'text-primary hover:text-primary-dark underline hover:no-underline';
+                        a.className = 'text-primary hover:text-primary-dark underline hover:no-underline truncate inline-block max-w-full';
                         
                         li.appendChild(a);
                         sourceList.appendChild(li);
@@ -570,12 +1231,18 @@
                 } else {
                     sourceList.innerHTML = '<li class="text-gray-500 italic">No specific sources were referenced from the knowledge base.</li>';
                 }
-                // --- END OF UNCHANGED CODE ---
+                // --- END SOURCES SECTION ---
 
                 // Hide loader and show RESULTS
                 loader.classList.add('hidden');
                 loader.classList.remove('flex');
                 resultsSection.style.display = 'block';
+                resultsSection.classList.remove('hidden');
+                
+                // Scroll to results smoothly
+                setTimeout(() => {
+                    resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }, 300);
                 
                     // Show recommended lawyers if present (styled cards)
                     const recommendedList = document.getElementById('recommendedList');
@@ -586,19 +1253,19 @@
                         grid.className = 'grid grid-cols-1 sm:grid-cols-2 gap-3';
                         rec.forEach(r => {
                             const card = document.createElement('div');
-                            card.className = 'border rounded-lg p-3 shadow-sm bg-white';
+                            card.className = 'border rounded-lg p-3 shadow-sm bg-white dark:bg-gray-700 break-words';
                             card.innerHTML = `
-                                <div class="flex items-center justify-between">
-                                    <div>
-                                        <div class="font-medium text-gray-800">${r.name}</div>
-                                        <div class="text-xs text-gray-600 mt-1">Category: <span class="font-medium">${data.recommended ? (data.recommended.category || '') : ''}</span></div>
+                                <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                                    <div class="min-w-0 flex-1">
+                                        <div class="font-medium text-gray-800 dark:text-gray-200 truncate">${r.name}</div>
+                                        <div class="text-xs text-gray-600 dark:text-gray-400 mt-1 break-words">Category: <span class="font-medium">${data.recommended ? (data.recommended.category || '') : ''}</span></div>
                                     </div>
-                                    <div class="text-right text-sm text-gray-600">
+                                    <div class="text-left sm:text-right text-sm text-gray-600 dark:text-gray-400 flex-shrink-0">
                                         <div>Won: <span class="font-semibold">${r.won || ''}</span></div>
                                         <div class="mt-1">Fees: <span class="font-semibold">${r.fees || ''}</span></div>
                                     </div>
                                 </div>
-                                <div class="mt-3 text-sm text-gray-700">Phone: <a href="tel:${r.phone}" class="text-primary underline">${r.phone}</a></div>
+                                <div class="mt-3 text-sm text-gray-700 dark:text-gray-300 break-all">Phone: <a href="tel:${r.phone}" class="text-primary hover:text-primary-dark underline">${r.phone}</a></div>
                             `;
                             grid.appendChild(card);
                         });
@@ -607,10 +1274,9 @@
                         recommendedList.innerHTML = '<p class="text-gray-500 italic">No recommendations available.</p>';
                     }
             } catch (error) {
-                // Hide loader and show PLACEHOLDER again
+                // Hide loader on error
                 loader.classList.add('hidden');
                 loader.classList.remove('flex');
-                placeholderSection.style.display = 'flex';
                 
                 alert('Error: ' + error.message);
             }
@@ -618,6 +1284,85 @@
         </script>
 
         <script>
+            // Theme Toggle Functionality
+            const themeToggle = document.getElementById('themeToggle');
+            const htmlElement = document.documentElement;
+            const sunIcon = document.getElementById('sunIcon');
+            const moonIcon = document.getElementById('moonIcon');
+
+            // Check for saved theme preference or default to 'light'
+            const currentTheme = localStorage.getItem('theme') || 'light';
+            htmlElement.classList.add(currentTheme);
+            
+            if (currentTheme === 'dark') {
+                sunIcon.classList.add('hidden');
+                moonIcon.classList.remove('hidden');
+            }
+
+            themeToggle.addEventListener('click', () => {
+                if (htmlElement.classList.contains('dark')) {
+                    htmlElement.classList.remove('dark');
+                    htmlElement.classList.add('light');
+                    localStorage.setItem('theme', 'light');
+                    sunIcon.classList.remove('hidden');
+                    moonIcon.classList.add('hidden');
+                } else {
+                    htmlElement.classList.remove('light');
+                    htmlElement.classList.add('dark');
+                    localStorage.setItem('theme', 'dark');
+                    sunIcon.classList.add('hidden');
+                    moonIcon.classList.remove('hidden');
+                }
+            });
+
+            // Progress Stage Management
+            function updateProgressStage(stageNumber) {
+                // Mark previous stages as completed
+                for (let i = 1; i < stageNumber; i++) {
+                    const stage = document.getElementById(`stage${i}`);
+                    if (stage) {
+                        stage.classList.remove('active');
+                        stage.classList.add('completed');
+                    }
+                }
+                
+                // Mark current stage as active
+                const currentStage = document.getElementById(`stage${stageNumber}`);
+                if (currentStage) {
+                    currentStage.classList.add('active');
+                }
+            }
+
+            // Detect mode and update loader message
+            function detectModeAndUpdateMessage() {
+                // Try to detect if online by checking if we can reach the server
+                fetch('/my_analyses', {method: 'HEAD'})
+                    .then(() => {
+                        document.getElementById('loaderMessage').textContent = 'This may take 2-3 minutes (online mode)...';
+                    })
+                    .catch(() => {
+                        document.getElementById('loaderMessage').textContent = 'This may take 5-6 minutes (offline mode)...';
+                    });
+            }
+
+            // Simulate progress stages (since we can't get real-time updates from backend)
+            function simulateProgress() {
+                detectModeAndUpdateMessage();
+                updateProgressStage(1); // Reading PDF
+                
+                setTimeout(() => {
+                    updateProgressStage(2); // Verifying Legitimacy
+                }, 3000);
+                
+                setTimeout(() => {
+                    updateProgressStage(3); // Generating Summaries
+                }, 8000);
+                
+                setTimeout(() => {
+                    updateProgressStage(4); // AI Analysis
+                }, 15000);
+            }
+
             // navbar logout handler to call /logout via fetch and redirect cleanly
             const navLogout = document.getElementById('navLogout');
             if (navLogout) {
@@ -627,7 +1372,29 @@
                     window.location.href = '/';
                 });
             }
+            
+            const navLogoutMobile = document.getElementById('navLogoutMobile');
+            if (navLogoutMobile) {
+                navLogoutMobile.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    try { await fetch('/logout', {method: 'POST'}); } catch (err) { /* ignore */ }
+                    window.location.href = '/';
+                });
+            }
+            
+            // Mobile menu toggle
+            const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+            const mobileMenu = document.getElementById('mobileMenu');
+            const menuIcon = document.getElementById('menuIcon');
+            const closeIcon = document.getElementById('closeIcon');
+            
+            if (mobileMenuBtn && mobileMenu) {
+                mobileMenuBtn.addEventListener('click', () => {
+                    mobileMenu.classList.toggle('hidden');
+                    menuIcon.classList.toggle('hidden');
+                    closeIcon.classList.toggle('hidden');
+                });
+            }
         </script>
-
 </body>
 </html>
